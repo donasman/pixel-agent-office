@@ -1,0 +1,43 @@
+{
+  "name": "pixel-agent-office",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Watch your Claude Code subagents work in a pixel-art office. The local viewer for the agent-office Claude Code plugin.",
+  "author": "donasman",
+  "license": "MIT",
+  "homepage": "https://github.com/donasman/pixel-agent-office#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/donasman/pixel-agent-office.git"
+  },
+  "bugs": "https://github.com/donasman/pixel-agent-office/issues",
+  "keywords": [
+    "claude-code",
+    "subagents",
+    "hooks",
+    "pixel-art",
+    "visualizer"
+  ],
+  "bin": {
+    "pixel-agent-office": "bin/pixel-agent-office.js"
+  },
+  "files": [
+    "bin/",
+    "core/",
+    "public/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "electron electron/main.js",
+    "viewer": "node bin/pixel-agent-office.js",
+    "test": "node test/office.test.js && node test/server.test.js && node test/cli.test.js"
+  },
+  "devDependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "electron": "^45.3.3",
+    "node-pty": "^1.1.0"
+  }
+}

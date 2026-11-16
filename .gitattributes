@@ -1,0 +1,2 @@
+# LF everywhere: the npx entry's shebang breaks on macOS/Linux with CRLF
+* text=auto eol=lf

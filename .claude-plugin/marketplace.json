@@ -1,0 +1,13 @@
+{
+  "name": "agent-office",
+  "owner": { "name": "donasman" },
+  "description": "Agent Office: watch your Claude Code subagents work in a pixel-art office.",
+  "plugins": [
+    {
+      "name": "agent-office",
+      "source": "./plugin",
+      "description": "Pixel-art office for your Claude Code subagents. Pair with the viewer: npx pixel-agent-office",
+      "version": "0.1.0"
+    }
+  ]
+}
