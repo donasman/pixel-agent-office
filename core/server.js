@@ -36,7 +36,8 @@ function slim(e) {
     hook_event_name: e.hook_event_name, session_id: e.session_id, agent_id: e.agent_id, agent_type: e.agent_type,
     source: e.source, tool_name: e.tool_name, tool_use_id: e.tool_use_id,
     tool_input: {
-      description: cut(ti.description, 200), command: cut(ti.command, 300), message: cut(ti.message, 400), // message: a subagent's report
+      // message: a subagent's report (SubagentHandback), or a message between team members (SendMessage, to whom)
+      description: cut(ti.description, 200), command: cut(ti.command, 300), message: cut(ti.message, 4000), to: cut(ti.to, 60),
       ...(task && {
         subject: cut(ti.subject, 120), activeForm: cut(ti.activeForm, 120), taskId: id(ti.taskId), status: cut(ti.status, 20),
         todos: Array.isArray(ti.todos) ? ti.todos.slice(0, 50).map(t => ({ content: cut(t?.content, 120), status: cut(t?.status, 20), activeForm: cut(t?.activeForm, 120) })) : undefined,
@@ -47,7 +48,7 @@ function slim(e) {
       : task && tr.task && tr.task.id != null ? { task: { id: id(tr.task.id), subject: cut(tr.task.subject, 120) } } : undefined,
     file: e.hook_event_name === 'PostToolUse' && EDIT_TOOLS.has(e.tool_name) ? shortPath(ti.file_path ?? ti.notebook_path, e.cwd) : undefined,
     is_interrupt: e.is_interrupt, error: cut(e.error, 200), notification_type: e.notification_type, message: cut(e.message, 200),
-    last_assistant_message: cut(e.last_assistant_message, 400), to_model: e.to_model, trigger: e.trigger, reason: cut(e.reason, 40),
+    last_assistant_message: cut(e.last_assistant_message, 4000), to_model: e.to_model, trigger: e.trigger, reason: cut(e.reason, 40),
     project: typeof e.cwd === 'string' ? path.basename(e.cwd).slice(0, 60) : undefined, // the folder's name names its floor, not the whole path
     // what a permission prompt is about, for answering it from the office
     ask: e.hook_event_name === 'PermissionRequest' ? cut(ti.command ?? ti.file_path ?? ti.url ?? JSON.stringify(ti), 300) : undefined,
@@ -223,6 +224,22 @@ async function start({
     });
   }
 
+  // Subscription usage, from the status line script (core/statusline.js): account-wide, so one gauge for every floor.
+  // Passed on only when a percentage moves, so the replay log doesn't fill up with repeats.
+  let usage = '';
+  function status(req, res) {
+    readJson(req, res, 64 * 1024, v => {
+      send(res, 204);
+      const pick = w => (w && Number.isFinite(Number(w.used_percentage)) ? { pct: Math.round(Number(w.used_percentage)), resets: Number(w.resets_at) || 0 } : undefined);
+      const rl = v?.rate_limits || {}, u = { five: pick(rl.five_hour), week: pick(rl.seven_day) };
+      if (!u.five && !u.week) return;
+      const key = JSON.stringify(u);
+      if (key === usage) return;
+      usage = key;
+      broadcast({ hook_event_name: 'Usage', usage: u, _t: Date.now() });
+    });
+  }
+
   function stream(req, res) {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write(': connected\n\n'); // sends the headers now; without it the page only "opens" at the first event
@@ -245,6 +262,7 @@ async function start({
     if (req.method === 'POST' && pathname === '/events') return receive(req, res, false);
     if (req.method === 'POST' && pathname === '/permission') return receive(req, res, true);
     if (req.method === 'POST' && pathname === '/decide') return decide(req, res);
+    if (req.method === 'POST' && pathname === '/status') return status(req, res);
     if (req.method !== 'GET') return send(res, 405);
     if (pathname === '/health') return send(res, 200, 'application/json', JSON.stringify({ app: 'agent-office', port: actual, pages: clients.size }));
     if (pathname === '/stream') return stream(req, res);
@@ -265,6 +283,8 @@ async function start({
 
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(portFile, String(actual));
+  // a fixed place for the status line script, for a claude setting that has to name a path
+  try { fs.copyFileSync(path.join(__dirname, 'statusline.js'), path.join(home, 'statusline.js')); } catch {}
   const removePortFile = () => { try { if (fs.readFileSync(portFile, 'utf8') === String(actual)) fs.rmSync(portFile); } catch {} };
   process.on('exit', removePortFile);
   return {

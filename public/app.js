@@ -2,7 +2,10 @@
 // you're looking at is drawn, with its roster and info card; tabs switch floors. Sounds come from every floor.
 // Runs alone in a browser, or inside the Electron app's iframe; there it talks to the app with postMessage.
 const embedded = window.parent !== window;
-const toShell = kind => { if (embedded) window.parent.postMessage({ agentOffice: kind }, '*'); }; // carries no data
+// The parent can't be addressed by origin (a file:// page), so messages carry no data of ours; the one value ever sent
+// back is a session id the app itself told us (appSessions).
+const toShell = (kind, value) => { if (embedded) window.parent.postMessage({ agentOffice: kind, value }, '*'); };
+const appSessions = new Set(); // the app's terminal tabs' claude sessions
 
 let building = Office.createBuilding();
 let current = null; // id of the floor on screen
@@ -58,9 +61,19 @@ function renderFloors() {
     tab.setAttribute('role', 'tab');
     tab.setAttribute('aria-selected', String(f.id === current));
     tab.title = st.closed ? '세션 종료됨' : st.waiting ? '승인 대기 중' : st.stuck ? '오래 안 끝나는 작업이 있음' : st.working ? '일하는 중' : '대기 중';
-    tab.addEventListener('click', () => show(f.id));
+    tab.addEventListener('click', () => pickFloor(f));
     return tab;
   }));
+}
+
+// A floor tab clicked. In the app: bring its terminal tab to the front if it has one; a floor of some other terminal
+// stays on screen (unpinned) until the app's tab changes.
+function pickFloor(f) {
+  show(f.id);
+  if (!embedded) return;
+  const sid = [...appSessions].find(x => building.alias[x] === f.id);
+  pinned = sid || null;
+  if (sid) toShell('tab', sid);
 }
 
 // ---- roster and info card (the floor on screen) ----
@@ -109,6 +122,14 @@ function taskRow(t) {
 }
 const fileRow = ([file, f]) => el('li', 'file', el('code', '', file), el('span', 'st', ` — ${f.by.join(', ')} · ${f.n}번`));
 const hint = text => el('li', 'hint', text);
+const clock = at => new Date(at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+function reportRow(r) {
+  const copy = el('button', 'copy', '복사');
+  copy.addEventListener('click', () => navigator.clipboard?.writeText(r.text).then(() => { copy.textContent = '복사됨'; }, () => { copy.textContent = '복사 안 됨'; }));
+  const body = r.text ? el('pre', '', r.text) : el('p', 'hint', '보고 내용이 오지 않았어요.');
+  return el('li', 'report', el('details', '', el('summary', '', el('span', 'when', clock(r.at)), ` ${r.who}${r.task ? ` · ${r.task}` : ''}`), body, r.text ? copy : ''));
+}
+const logRow = j => el('li', 'log', el('span', 'when', clock(j.at)), el('span', 'who', ` ${j.who} `), j.text);
 
 const tokens = n => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
 const ctxEl = document.getElementById('ctx');
@@ -130,7 +151,7 @@ function renderPanel() {
   // the to-do tab only while claude keeps a list: Claude Code gives current models TaskCreate only with
   // CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (older models, like Opus 4.7, by default)
   const view = tab === 'tasks' && !tasks.length ? 'people' : tab;
-  const label = { people: '직원', tasks: `할 일 ${done}/${tasks.length}`, files: files.length ? `파일 ${files.length}` : '파일' };
+  const label = { people: '직원', tasks: `할 일 ${done}/${tasks.length}`, files: files.length ? `파일 ${files.length}` : '파일', reports: s.inbox.length ? `보고서 ${s.inbox.length}` : '보고서', log: '일지' };
   for (const b of tabButtons) {
     b.textContent = label[b.dataset.tab];
     b.hidden = b.dataset.tab === 'tasks' && !tasks.length;
@@ -138,13 +159,16 @@ function renderPanel() {
   }
   renderContext(s);
   const asks = cs.filter(c => c.perm && c.status === 'waiting'), people = cs.filter(c => c.kind === 'boss' || c.busy);
-  const shown = view === 'tasks' ? tasks : view === 'files' ? files : people.map(c => [c.id, c.label, c.task, c.color, statusOf(c), lateOf(c)]);
+  const shown = view === 'tasks' ? tasks : view === 'files' ? files : view === 'reports' ? s.inbox.map(r => [r.at, r.text.length])
+    : view === 'log' ? [s.journal.length, s.journal.at(-1)?.at] : people.map(c => [c.id, c.label, c.task, c.color, statusOf(c), lateOf(c)]);
   // rebuilt only when something shown changes, so buttons stay put under the cursor
   const key = JSON.stringify([current, view, asks.map(c => c.perm.id), shown]);
   if (key === rosterKey) return;
   rosterKey = key;
   const rows = view === 'tasks' ? tasks.map(taskRow)
     : view === 'files' ? [...files.map(fileRow), hint(files.length ? 'Edit/Write로 고친 파일만 보여요. 명령(Bash)으로 바꾼 파일은 빠져요.' : 'claude가 Edit/Write로 고친 파일이 여기 모여요.')]
+    : view === 'reports' ? (s.inbox.length ? s.inbox.map(reportRow) : [hint('서브에이전트와 팀원이 일을 마치고 보낸 보고서가 여기 모여요. 누르면 전문이 보여요.')])
+    : view === 'log' ? (s.journal.length ? s.journal.slice().reverse().map(logRow) : [hint('이 층에서 일어난 일이 시간순으로 쌓여요.')])
     : people.map(personRow);
   roster.replaceChildren(...asks.map(askRow), ...rows);
 }
@@ -262,6 +286,7 @@ fetch('art/art.json').then(r => r.json()).then(async art => {
 
 // ---- events ----
 function apply(e) {
+  if (e.hook_event_name === 'Usage') return renderUsage(e.usage); // the subscription's limits: one for the whole building
   const f = Office.route(building, e, e._t); // the server's receive time, so replayed history doesn't replay its effects
   if (!f) return;
   const replayed = Date.now() - e._t > 3000; // history replayed on (re)connect: no sounds, no jumping around
@@ -279,6 +304,16 @@ function apply(e) {
   } else if (ev === 'StopFailure') toast(f, '작업 중단', e.error || '오류');
 }
 
+// ---- subscription usage (5-hour and weekly windows), from claude's status line (core/statusline.js) ----
+const usageEl = document.getElementById('usage');
+function renderUsage(u) {
+  const parts = [['5시간', u?.five], ['주간', u?.week]].filter(([, w]) => w);
+  usageEl.hidden = !parts.length;
+  usageEl.replaceChildren(...parts.map(([name, w]) => el('span', w.pct >= 80 ? 'hot' : w.pct >= 50 ? 'warm' : '', `${name} ${w.pct}%`)));
+  const when = t => new Date(t * 1000).toLocaleString('ko-KR', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  usageEl.title = '구독 사용량. ' + parts.map(([name, w]) => `${name}: ${w.pct}% 사용${w.resets ? `, ${when(w.resets)} 초기화` : ''}`).join(' / ');
+}
+
 const events = new EventSource('/stream');
 events.onopen = () => { building = Office.createBuilding(); current = null; renderAll(); }; // the server replays its history on every (re)connect
 events.onmessage = m => { try { apply(JSON.parse(m.data)); } catch (err) { console.error(err); } };
@@ -287,6 +322,7 @@ if (embedded) {
   window.addEventListener('message', m => {
     if (m.source !== window.parent || !m.data) return;
     if (m.data.agentOffice === 'focus') appFocused = Boolean(m.data.value);
+    else if (m.data.agentOffice === 'sessions') { appSessions.clear(); for (const x of [].concat(m.data.value || [])) appSessions.add(String(x)); }
     else if (m.data.agentOffice === 'session') { // the app's tab in front runs this claude session: show its floor
       // (a claude the app ends gets its floor closed by a SessionEnd the app posts to the server)
       pinned = m.data.value;

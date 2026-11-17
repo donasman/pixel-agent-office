@@ -26,6 +26,7 @@ Then use Claude Code as usual, in any terminal or IDE. The office opens in an ap
 | A subagent starts | A sleeping staff member wakes up with a "!" and gets the task's name |
 | Edit / Write, Read / Grep, Bash | Typing, reading papers, a terminal on the monitor |
 | A subagent finishes | Its report flies to the boss's desk; the boss reads the first line |
+| Agent teams | Each teammate gets a desk on the lead's floor; given more work later, it wakes at the same desk |
 | Permission prompt | A "?" bubble, a chime, and 허용 / 거부 buttons under the office (see below) |
 | A tool still running after 5 minutes | A "5MIN" bubble and a "!" on its floor's tab: a hung command, or claude closed mid-task |
 | A tool fails | Sweat and "OOPS"; three failures in a row make the monitor smoke |
@@ -39,8 +40,20 @@ Click anyone to see their task, recent tools, work time and last report. Three o
 
 - **직원**: who is working on what.
 - **파일**: the files edited this session (Edit/Write), newest first, with who edited them and how often. Changes made by commands (Bash) aren't listed.
+- **보고서**: every report subagents and teammates sent back, in full. Click one to open it; 복사 copies it.
+- **일지**: what happened on this floor, in order: instructions, tools used, reports, permission prompts, compactions.
 - **컨텍스트**: how full the main agent's context is, from its transcript (current models have a 1M-token window).
 - **할 일**: claude's to-do list (TaskCreate / TaskUpdate), also drawn as sticky notes on the whiteboard (to do / doing / done). It shows up only while claude keeps one. Claude Code gives the current models (Opus, Sonnet and Haiku 5.5, Fable) these tools only when `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is set; older models such as Opus 4.7 have them by default.
+
+### Usage gauge
+
+At the top, `5시간 34% 주간 61%`: how much of your subscription's 5-hour and weekly limits is used, with the reset times on hover. Claude Code hands these numbers only to a status line, so the gauge needs the office's status line script. The desktop app sets it up for the claude it runs. Elsewhere, add this to `~/.claude/settings.json` (the office copies the script to `~/.agent-office/` whenever it starts):
+
+```json
+"statusLine": { "type": "command", "command": "node ~/.agent-office/statusline.js" }
+```
+
+It prints nothing itself. If you already have a status line, keep it by moving its command into `"env": { "AGENT_OFFICE_STATUSLINE": "<your command>" }`; the script runs it after passing the numbers on.
 
 ### Answer permission prompts from the office
 
@@ -79,7 +92,11 @@ npm install
 npm start
 ```
 
-It runs your own `claude` login, so it uses your subscription as usual. **+ 새 세션** above the terminal asks for a folder and runs another claude in a new tab; each tab is its own floor, and the office shows the floor of the tab in front. Closing a tab (×) ends its claude. `npm start -- C:\Dev\my-project` skips the first folder question.
+It runs your own `claude` login, so it uses your subscription as usual. `npm start -- C:\Dev\my-project` skips the first folder question.
+
+- **+ 새 세션** asks for a folder and runs another claude in a new tab. Each tab is its own floor: the office shows the floor of the tab in front, and clicking a floor's tab in the office brings its terminal tab to the front. Closing a tab (×) ends its claude.
+- **중단** stops claude's turn (Esc; only sent while claude is working), **/compact** and **/clear** run those commands (whatever was half-typed is cleared first; /clear asks before it runs).
+- The claude it runs gets the to-do tools (`CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, unless you set it yourself) and the office's status line, so the whiteboard and the usage gauge work there out of the box.
 
 ## Uninstall
 

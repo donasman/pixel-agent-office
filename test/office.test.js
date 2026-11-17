@@ -168,6 +168,18 @@ for (const c of Object.values(chars)) if (c.say?.text) assert.match(c.say.text, 
   assert.equal(go('A2', 'UserPromptSubmit', {}, 1102), one, '/clear stays on the same floor');
   assert.equal(one.state.chars.boss.status, 'thinking', 'and the new session is still the boss');
   assert.equal(go('A', 'Stop', {}, 1103), null, 'stragglers from an ended session are dropped');
+  assert.equal(b.alias.A, one.id, 'the id from before /clear still names the floor (the app knows its terminal by it)');
+
+  // the app closes that terminal and says so under the id it knows: the floor closes, then reopens for the next claude
+  {
+    const b2 = Office.createBuilding();
+    const g = (sid, ev, extra = {}, now = 1000) => Office.route(b2, { session_id: sid, hook_event_name: ev, project: 'x', ...extra }, now);
+    const f = g('X', 'SessionStart', { source: 'startup' });
+    g('Y', 'SessionStart', { source: 'clear' }, 1001);
+    g('X', 'SessionEnd', { reason: 'clear' }, 1002);
+    g('X', 'SessionEnd', { reason: 'other' }, 1003);
+    assert.equal(Office.floorStatus(f).closed, true, 'a tab closed after /clear closes its floor');
+  }
 
   // the restart bug: quit claude, start it again in the same folder -> the same floor, the new session is the boss
   go('A2', 'SessionEnd', { reason: 'prompt_input_exit' }, 2000);
@@ -266,6 +278,38 @@ for (const c of Object.values(chars)) if (c.say?.text) assert.match(c.say.text, 
     [1e6, 2e5, 1e6, 2e5, 2e5, 1e6, 1e6], 'context windows: current models 1M, the 4.5 generation and older 200K');
   go('SessionStart', { session_id: 'T2', source: 'clear' });
   assert.deepEqual([Object.keys(s.tasks).length, Object.keys(s.files).length], [0, 2], '/clear empties the to-do list; the files stay with the floor');
+}
+
+// --- agent teams (event order from a real claude 2.1.326 run): a teammate is a subagent of the lead's session, reports
+// with SendMessage, and after its SubagentStop can be given more work, which starts with SubagentStart again ---
+{
+  const b = Office.createBuilding();
+  const go = (hook_event_name, extra = {}, now = 1000) => Office.route(b, { session_id: 'L', project: 'p', hook_event_name, ...extra }, now);
+  const s = go('UserPromptSubmit').state;
+  const helper = { agent_id: 'h1', agent_type: 'helper' };
+  go('PreToolUse', { tool_name: 'Agent', tool_use_id: 'a1', tool_input: { description: 'Run echo and report' } });
+  go('SubagentStart', helper);
+  go('PostToolUse', { tool_name: 'Agent', tool_use_id: 'a1', tool_input: { description: 'Run echo and report' } });
+  go('PostToolUse', { ...helper, tool_name: 'Bash', tool_use_id: 'b1', tool_input: { command: 'echo first-job' } });
+  go('PreToolUse', { ...helper, tool_name: 'SendMessage', tool_use_id: 'm1', tool_input: { to: 'team-lead', message: 'first-job' } });
+  go('SubagentStop', { ...helper, last_assistant_message: 'echo printed first-job. I sent it to the lead.' }, 2000);
+  const h = s.chars[s.gone.get('h1')];
+  assert.deepEqual([h.lastReport, s.inbox[0].text, s.inbox[0].task], ['first-job', 'first-job', 'Run echo and report'], "the teammate's message is its report");
+
+  go('PreToolUse', { tool_name: 'SendMessage', tool_use_id: 'm2', tool_input: { to: 'helper', message: 'Run `echo second-job` and report back.' } }, 3000);
+  go('SubagentStart', helper, 3001);
+  assert.deepEqual([s.who.h1, h.busy, h.jobs, h.task], [h.id, true, 2, 'Run `echo second-job` and report back.'], 'given more work, the same teammate wakes at its desk with the new task');
+  go('PostToolUse', { ...helper, tool_name: 'Bash', tool_use_id: 'b2', tool_input: { command: 'echo second-job' } }, 3002);
+  go('PostToolUse', { ...helper, tool_name: 'SendMessage', tool_use_id: 'm3', tool_input: { to: 'team-lead', message: 'second-job' } }, 3003);
+  go('SubagentStop', helper, 3004);
+  go('PostToolUse', { ...helper, tool_name: 'Read', tool_use_id: 'late' }, 3005);
+  assert.deepEqual([s.inbox.length, s.inbox[0].text, h.busy], [2, 'second-job', false], 'two reports, newest first; a straggler after the stop wakes no one');
+
+  const log = s.journal.map(j => `${j.who}: ${j.text}`);
+  for (const line of ['Claude: 새 지시를 받음', 'helper: 일 시작: Run echo and report', 'helper: Bash echo first-job', 'helper: 보고: first-job', 'helper: 메시지 → team-lead: second-job']) {
+    assert.ok(log.includes(line), `work log has "${line}": ${log.join(' / ')}`);
+  }
+  assert.deepEqual(s.journal.map(j => j.at), s.journal.map(j => j.at).slice().sort((x, y) => x - y), 'the log is in time order');
 }
 
 console.log('office reducer ok');

@@ -31,8 +31,39 @@ function renderTabs() {
   });
   const add = button('add', '+ 새 세션', newSession);
   add.title = '폴더를 골라 claude를 하나 더 실행해요. 사무실에 층이 하나 생겨요.';
-  tabsEl.replaceChildren(...items, add);
+  const quick = document.createElement('div');
+  quick.className = 'quick';
+  quick.append(...QUICK.map(([text, title, run]) => { const b = button('', text, run); b.title = title; return b; }));
+  tabsEl.replaceChildren(...items, add, quick);
+  toOffice('sessions', [...tabs.values()].map(x => x.session).filter(Boolean)); // so a floor tab clicked there can bring its terminal tab here
 }
+
+// Quick buttons for the tab in front. Ctrl+U first empties claude's input line, so a command isn't glued to half-typed
+// text; Enter waits until claude's command menu has caught up.
+function command(text) {
+  const id = active, t = tabs.get(id);
+  if (!t?.alive) return;
+  bridge.write(id, '\x15');
+  setTimeout(() => bridge.write(id, text), 150);
+  setTimeout(() => bridge.write(id, '\r'), 800);
+  t.term.focus();
+}
+// claude is mid-turn when its footer says "esc to interrupt"; Esc on an idle prompt would bring back the last command
+function working(t) {
+  const b = t.term.buffer.active;
+  for (let i = b.length - 1, seen = 0; i >= 0 && seen < 12; i--) {
+    const line = b.getLine(i)?.translateToString(true) || '';
+    if (!line.trim()) continue;
+    seen++;
+    if (/esc to interrupt/i.test(line)) return true;
+  }
+  return false;
+}
+const QUICK = [
+  ['중단', 'claude가 하던 일을 멈춰요 (Esc). 일하는 중일 때만 보내요.', () => { const t = tabs.get(active); if (t?.alive && working(t)) bridge.write(active, '\x1b'); t?.term.focus(); }],
+  ['/compact', '대화를 요약해서 컨텍스트를 줄여요', () => command('/compact')],
+  ['/clear', '대화를 지우고 새로 시작해요. 사무실 층은 그대로예요.', () => { if (confirm('이 탭의 대화를 지우고 새로 시작할까요? (/clear)')) command('/clear'); else tabs.get(active)?.term.focus(); }],
+];
 
 function show(id) {
   const t = tabs.get(id);
@@ -92,6 +123,7 @@ bridge.onSession((id, session) => {
   if (!t) return;
   t.session = session;
   if (id === active) toOffice('session', session);
+  renderTabs();
 });
 bridge.onData((id, d) => tabs.get(id)?.term.write(d));
 bridge.onExit(id => {
@@ -106,6 +138,10 @@ window.addEventListener('message', m => {
   if (m.data.agentOffice === 'flash') bridge.flash();
   else if (m.data.agentOffice === 'focus-terminal') tabs.get(active)?.term.focus();
   else if (m.data.agentOffice === 'raise') bridge.raise(); // a notification was clicked
+  else if (m.data.agentOffice === 'tab') { // a floor tab clicked in the office: its terminal tab comes to the front
+    const id = [...tabs].find(([, t]) => t.session === m.data.value)?.[0];
+    if (id) show(id);
+  }
 });
 bridge.onWindowFocus(focused => toOffice('focus', focused));
 // the first message can arrive before the office page has loaded: tell it again once it has

@@ -14,6 +14,7 @@
     Read: 'reading', Grep: 'reading', Glob: 'reading', WebFetch: 'reading', WebSearch: 'reading',
     Bash: 'running', PowerShell: 'running', Agent: 'delegating', Task: 'delegating',
     SubagentHandback: 'typing', // a subagent writing up its report for the main agent
+    SendMessage: 'typing', // agent teams: a message between the lead and a teammate
   };
   const STATUS_KO = {
     sleeping: '꿀잠 중', thinking: '생각 중', typing: '코드 작성', reading: '자료 조사', running: '명령 실행',
@@ -46,15 +47,31 @@
       chars, who: {}, bossSession: null, pendingTasks: [], knownTasks: {}, doneTools: new Set(), gone: new Map(),
       seq: DESKS.length, temps: 0, lights: null, cleaning: 0, effects: [], reports: 0,
       tasks: {}, files: {}, context: 0, modelId: '', // claude's to-do list, files edited, context tokens (of modelId's window)
+      inbox: [], journal: [], sent: {}, // subagents' reports in full, what happened when, the lead's last message to each teammate
     };
   }
 
   // A report (SubagentHandback) can arrive after its SubagentStop: file it with whoever wrote it.
-  function lateReport(s, charId, msg) {
-    const c = s.chars[charId];
+  function lateReport(s, agentId, msg) {
+    const c = s.chars[s.gone.get(agentId)], filed = s.inbox.find(r => r.agent === agentId);
     if (msg && c && c.lastReport === '완료') c.lastReport = firstLine(msg);
+    if (msg && filed && !filed.text) filed.text = msg;
     return s;
   }
+
+  // The floor's work log, newest last.
+  function note(s, c, text, now) {
+    s.journal.push({ at: now, who: c.kind === 'boss' ? 'Claude' : c.label, text: String(text).slice(0, 200) });
+    if (s.journal.length > 300) s.journal.shift();
+  }
+  const DONE_KO = { allow: '사무실에서 허용', deny: '사무실에서 거부', terminal: '터미널에서 답함' };
+  const toolLine = e => {
+    const ti = e.tool_input || {};
+    if (e.tool_name === 'SendMessage') return `메시지 → ${ti.to || '?'}: ${(ti.message || '').split('\n')[0]}`;
+    if (e.tool_name === 'TaskCreate') return `할 일 추가: ${ti.subject || ''}`;
+    if (e.tool_name === 'TaskUpdate') return `할 일 #${ti.taskId}: ${ti.status || '수정'}`;
+    return `${e.tool_name} ${ti.command || e.file || ti.description || ''}`.trim();
+  };
 
   // Hooks run async, so a fast tool's PostToolUse can arrive before its PreToolUse: remember finished tools.
   function markDone(s, id) {
@@ -127,7 +144,10 @@
     if (!id) return null;
     if (s.who[id]) return s.chars[s.who[id]];
     if (e.hook_event_name === 'SubagentStop' || e.hook_event_name === 'PermissionDone') return null;
-    if (e.agent_id && s.gone.has(e.agent_id)) return null; // late event from a finished subagent: don't wake anyone
+    if (e.agent_id && s.gone.has(e.agent_id)) { // finished before: a teammate given new work starts again; else a late straggler
+      if (e.hook_event_name !== 'SubagentStart') return null;
+      s.gone.delete(e.agent_id);
+    }
     // the first session is the boss; /clear, resume and compact give the boss a new session id
     if (!e.agent_id && (!s.bossSession || ['clear', 'resume', 'compact'].includes(e.source))) {
       s.bossSession = id;
@@ -154,8 +174,9 @@
   }
 
   function reduce(s, e, now = Date.now()) {
-    const handback = e.tool_name === 'SubagentHandback' ? e.tool_input?.message : undefined;
-    if (handback && s.gone.has(e.agent_id)) return lateReport(s, s.gone.get(e.agent_id), handback);
+    // a subagent's report: SubagentHandback, or (agent teams) a teammate's message to the lead
+    const handback = e.tool_name === 'SubagentHandback' || (e.tool_name === 'SendMessage' && e.agent_id) ? e.tool_input?.message : undefined;
+    if (handback && s.gone.has(e.agent_id)) return lateReport(s, e.agent_id, handback);
     const c = charFor(s, e, now);
     if (!c) return s;
     c.seenAt = now; // the last sign of life, for stuckFor()
@@ -166,11 +187,19 @@
     if (ev === 'SessionStart' && e.source === 'clear') s.tasks = {}; // /clear starts claude's to-do list afresh
     if (ev === 'SessionStart' || ev === 'UserPromptSubmit' || ev === 'PreToolUse') s.lights = null; // power is back
     switch (ev) {
-      case 'SessionStart': if (c.kind !== 'boss') wake(c, 'thinking', now); break;
-      case 'SubagentStart': c.task = takeTask(s, e.agent_id); wake(c, 'thinking', now); break;
-      case 'UserPromptSubmit': wake(c, 'thinking', now); break;
+      case 'SessionStart':
+        if (c.kind !== 'boss') wake(c, 'thinking', now);
+        note(s, c, { resume: '세션 이어서 시작', clear: '/clear: 새 대화' }[e.source] || (e.source === 'compact' ? '압축 후 계속' : '세션 시작'), now);
+        break;
+      case 'SubagentStart': // a teammate given more work (SendMessage) has no Agent call: its task is the lead's message
+        c.task = takeTask(s, e.agent_id) || s.sent[e.agent_type] || '';
+        wake(c, 'thinking', now);
+        note(s, c, `일 시작: ${c.task || '-'}`, now);
+        break;
+      case 'UserPromptSubmit': wake(c, 'thinking', now); note(s, c, '새 지시를 받음', now); break;
       case 'PreToolUse':
         c.history = [...c.history, e.tool_name].slice(-5);
+        if (e.tool_name === 'SendMessage' && c.kind === 'boss' && e.tool_input?.to) s.sent[e.tool_input.to] = (e.tool_input.message || '').split('\n')[0].slice(0, 200);
         if (s.doneTools.has(e.tool_use_id)) break; // arrived after its PostToolUse: the tool is already done
         if (TOOL_STATUS[e.tool_name] === 'delegating') s.pendingTasks.push(e.tool_input?.description || '');
         wake(c, TOOL_STATUS[e.tool_name] || 'working', now);
@@ -179,10 +208,12 @@
       case 'PermissionRequest': // _perm: the office can answer it (the server is holding the hook)
         wake(c, 'waiting', now);
         c.perm = e._perm ? { id: e._perm, tool: e.tool_name || '', ask: e.ask || '' } : null;
+        note(s, c, `승인 요청: ${e.tool_name || ''} ${e.ask || ''}`, now);
         break;
       case 'PermissionDone': // answered (here or in the terminal), or no longer answerable from here
         if (c.perm?.id !== e._perm) break;
         c.perm = null;
+        if (DONE_KO[e.behavior]) note(s, c, DONE_KO[e.behavior], now);
         if (c.status === 'waiting' && e.behavior === 'allow') c.status = TOOL_STATUS[c.tool] || 'working';
         else if (c.status === 'waiting' && e.behavior === 'deny') c.status = 'thinking';
         break;
@@ -193,6 +224,7 @@
         c.tool = null;
         c.failStreak = 0;
         track(s, c, e, now);
+        note(s, c, toolLine(e), now);
         if (TEST_CMD.test(cmd)) s.effects.push({ type: 'clap', at: now });
         if (COMMIT_CMD.test(cmd)) { s.effects.push({ type: 'confetti', at: now }); say(c, 'COMMIT!', now); }
         break;
@@ -200,6 +232,7 @@
         markDone(s, e.tool_use_id);
         if (c.status !== 'sleeping') c.status = 'thinking';
         c.tool = null;
+        note(s, c, `${e.tool_name} ${e.is_interrupt ? '중단 (Esc)' : `실패${e.error ? ': ' + e.error : ''}`}`, now);
         if (e.is_interrupt) break; // the user pressed Esc: not the agent's mistake
         c.oopsAt = now;
         c.failStreak++;
@@ -209,10 +242,11 @@
         if (e.notification_type === 'permission_prompt' || /permission/i.test(e.message || '')) wake(c, 'waiting', now);
         else c.status = 'sleeping';
         break;
-      case 'Stop': c.status = 'sleeping'; c.tool = null; break;
-      case 'StopFailure': s.lights = { reason: e.error || 'unknown' }; c.status = 'sleeping'; c.tool = null; break;
-      case 'PreCompact': s.cleaning = now; say(s.chars.boss, 'TIDY', now, { ms: 120000 }); break;
+      case 'Stop': c.status = 'sleeping'; c.tool = null; note(s, c, '작업 끝', now); break;
+      case 'StopFailure': s.lights = { reason: e.error || 'unknown' }; c.status = 'sleeping'; c.tool = null; note(s, c, `멈춤: ${e.error || '오류'}`, now); break;
+      case 'PreCompact': s.cleaning = now; say(s.chars.boss, 'TIDY', now, { ms: 120000 }); note(s, c, '컨텍스트 압축 시작', now); break;
       case 'PostCompact':
+        note(s, c, '컨텍스트 압축 끝', now);
         s.cleaning = 0;
         s.reports = 0; // the report pile gets filed away
         s.chars.boss.say = null;
@@ -220,8 +254,11 @@
         break;
       case 'PostModelSwitch': setModel(s, e.to_model); break;
       case 'SubagentStop': {
-        const from = seat(c), report = firstLine(e.last_assistant_message || c.handback);
+        const text = c.handback || e.last_assistant_message || '', from = seat(c), report = firstLine(text);
         Object.assign(c, { status: 'sleeping', tool: null, busy: false, lastReport: report });
+        s.inbox.unshift({ agent: e.agent_id, who: c.label, task: c.task, text, at: now });
+        if (s.inbox.length > 50) s.inbox.pop();
+        note(s, c, `보고: ${report}`, now);
         delete s.who[e.agent_id];
         s.gone.set(e.agent_id, c.id);
         if (s.gone.size > 200) s.gone.delete(s.gone.keys().next().value);
@@ -258,7 +295,9 @@
     const sid = e.session_id, ev = e.hook_event_name, project = e.project || 'claude';
     if (!sid) return null;
     if (ev === 'SessionStart') b.ended.delete(sid); // claude --resume brings an ended session back
-    if (b.ended.has(sid)) return null; // a straggler from a session that already ended (hooks are async)
+    // A straggler from a session that already ended (hooks are async) is dropped. A session that went on under a new id
+    // after /clear still names its floor, though: the app that started it says so when it ends that terminal.
+    if (b.ended.has(sid)) return ev === 'SessionEnd' && e.reason !== 'clear' && b.alias[sid] ? b.floors[b.alias[sid]] || null : null;
     if (b.alias[sid]) return b.floors[b.alias[sid]] || null;
     if (ev === 'SessionEnd' || ev === 'SubagentStop' || ev === 'PermissionDone') return null;
     const here = Object.values(b.floors).filter(f => f.project === project);
@@ -289,9 +328,8 @@
     if (e.hook_event_name === 'SessionEnd') {
       b.ended.add(e.session_id);
       if (b.ended.size > 500) b.ended.delete(b.ended.values().next().value);
-      delete b.alias[e.session_id];
       if (e.reason === 'clear') f.clearedAt = now; // the same terminal goes on with a new session id
-      else closeFloor(f, now);
+      else { delete b.alias[e.session_id]; closeFloor(f, now); }
       return f;
     }
     reduce(f.state, e, now);

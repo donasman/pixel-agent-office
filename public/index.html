@@ -25,6 +25,16 @@
   #roster .task.in_progress { color: #89b4fa; }
   #roster .file code { font: 12px Consolas, monospace; }
   #roster .hint { color: #7f849c; font-size: 12px; white-space: normal; }
+  #roster .when { color: #7f849c; font: 12px Consolas, monospace; }
+  #roster .who { color: #a6adc8; }
+  #roster li.log, #roster li.report { white-space: normal; }
+  #roster summary { cursor: pointer; }
+  #roster details pre { margin: 4px 0 4px 16px; padding: 6px 8px; max-height: 240px; overflow: auto; background: #11111b; border-radius: 4px; white-space: pre-wrap; word-break: break-word; font: 12px Consolas, "Malgun Gothic", monospace; }
+  #roster .copy { margin-left: 16px; padding: 1px 8px; border: 1px solid #45475a; border-radius: 4px; background: #11111b; color: #cdd6f4; font: 12px "Malgun Gothic", sans-serif; cursor: pointer; }
+  #usage { display: flex; gap: 8px; color: #a6adc8; font-size: 12px; white-space: nowrap; }
+  #usage[hidden] { display: none; }
+  #usage .warm { color: #f9e2af; }
+  #usage .hot { color: #f38ba8; }
   #roster li { padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #roster .dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; outline: 1px solid #6c7086; }
   #roster .st { color: #a6adc8; }
@@ -60,6 +70,7 @@
 <div id="bar">
   <div id="floors" role="tablist" aria-label="층 (claude 세션)"></div>
   <button id="follow" aria-pressed="true" title="일이 생긴 층으로 자동 이동">자동 이동</button>
+  <span id="usage" hidden></span>
   <button id="notify" title="이 창을 안 보고 있을 때 승인 대기, 작업 완료, 멈춤을 윈도우 알림으로 알려 줘요" hidden>알림 켜기</button>
   <button id="theme" title="사무실 테마 바꾸기">주간</button>
   <button id="mute" aria-label="알림 소리 끄기" aria-pressed="false" title="알림 소리 켜기/끄기">🔔</button>
@@ -70,6 +81,8 @@
     <button role="tab" data-tab="people">직원</button>
     <button role="tab" data-tab="tasks">할 일</button>
     <button role="tab" data-tab="files">파일</button>
+    <button role="tab" data-tab="reports">보고서</button>
+    <button role="tab" data-tab="log">일지</button>
     <span id="ctx" hidden></span>
   </div>
   <ul id="roster" aria-live="polite"></ul>

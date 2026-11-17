@@ -137,6 +137,34 @@ const watch = port => {
   assert.deepEqual([stop.context, stop.model], [3250, 'claude-haiku-5-5'], 'context = everything the last answer was given and wrote');
   assert.equal(compact.context, 900, 'after compacting, what is left');
 
+  // --- subscription usage from the status line script: passed on when it changes, and the script itself ---
+  const gauge = watch(a.port);
+  await tick(100);
+  const status = body => request(a.port, { method: 'POST', path: '/status', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const limits = (five, week) => ({ session_id: 'S', rate_limits: { five_hour: { used_percentage: five, resets_at: 1800000000 }, seven_day: { used_percentage: week, resets_at: 1800500000 } } });
+  assert.equal((await status(limits(33.4, 61))).status, 204);
+  await status(limits(33.2, 61)); // same whole percentages: nothing new
+  await status({ session_id: 'S' }); // a status line before the first API response: no rate_limits
+  await status(limits(34, 61));
+  await tick(100);
+  assert.deepEqual(gauge.got.filter(x => x.hook_event_name === 'Usage').map(x => [x.usage.five.pct, x.usage.week.pct, x.usage.five.resets]), [[33, 61, 1800000000], [34, 61, 1800000000]]);
+  assert.equal(gauge.got.at(-1).session_id, undefined, 'account-wide: belongs to no floor');
+  const script = path.join(process.env.AGENT_OFFICE_HOME, 'statusline.js');
+  assert.ok(fs.existsSync(script), 'the office puts the status line script where a claude setting can name it');
+  const { spawn } = require('child_process');
+  const run = (input, env) => new Promise(ok => {
+    const p = spawn(process.execPath, [script], { env: { ...process.env, ...env } });
+    let out = '';
+    p.stdout.on('data', d => (out += d));
+    p.on('close', () => ok(out.trim()));
+    p.stdin.end(input);
+  });
+  assert.equal(await run(JSON.stringify(limits(50, 70)), { AGENT_OFFICE_STATUSLINE: 'echo my-own-line', AGENT_OFFICE_SHELL: 'bash' }), 'my-own-line', 'then it shows your own status line');
+  await tick(100);
+  assert.deepEqual([gauge.got.at(-1).usage.five.pct, gauge.got.at(-1).usage.week.pct], [50, 70], 'the script passed the usage on');
+  assert.equal(await run('not json', {}), '', 'bad input: says nothing, breaks nothing');
+  gauge.close();
+
   // --- answering a permission prompt from the office ---
   const origin = `http://127.0.0.1:${a.port}`;
   const ask = (command, extra = {}) => request(a.port, { method: 'POST', path: '/permission', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hook_event_name: 'PermissionRequest', session_id: 'P', tool_name: 'Bash', tool_input: { command }, ...extra }) });

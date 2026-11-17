@@ -15,6 +15,21 @@ const core = require('../core/server');
 const gitBash = [process.env.CLAUDE_CODE_GIT_BASH_PATH, ...['ProgramFiles', 'ProgramFiles(x86)'].map(k => process.env[k] && path.join(process.env[k], 'Git', 'bin', 'bash.exe')),
   process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe')].find(p => p && fs.existsSync(p));
 const HOOKS = path.join(__dirname, '..', gitBash ? 'plugin' : 'plugin-powershell', 'hooks', 'hooks.json');
+// What the claude started here gets with --settings: the plugin's hooks, plus the office's status line (the one place
+// claude hands out the subscription usage), which then shows your own status line, if you have one.
+const SETTINGS = path.join(os.tmpdir(), 'agent-office-claude-settings.json');
+fs.writeFileSync(SETTINGS, JSON.stringify({
+  hooks: JSON.parse(fs.readFileSync(HOOKS, 'utf8')).hooks,
+  statusLine: { type: 'command', command: `node "${path.join(__dirname, '..', 'core', 'statusline.js').replace(/\\/g, '/')}"` },
+}));
+// your status line for a folder: the most specific settings file that sets one
+function ownStatusLine(cwd) {
+  const claudeDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  for (const f of [path.join(cwd, '.claude', 'settings.local.json'), path.join(cwd, '.claude', 'settings.json'), path.join(claudeDir, 'settings.json')]) {
+    try { const c = JSON.parse(fs.readFileSync(f, 'utf8')).statusLine?.command; if (c) return c; } catch {}
+  }
+  return '';
+}
 // Set when this app is launched from inside a claude session; inherited, they make our claude a child of that session
 // (it then writes no transcript, so the office can't read its model). Our claude is a session of its own.
 const PARENT_SESSION_ENV = /^(CLAUDECODE|CLAUDE_PID|CLAUDE_CODE_(CHILD_SESSION|SESSION_ID|SESSION_ATTENDED|ENTRYPOINT|MESSAGING_SOCKET|MESSAGING_TOKEN))$/;
@@ -49,11 +64,16 @@ function startClaude(id, cwd, cols, rows) {
   const t = { session: crypto.randomUUID(), cwd, ended: false }; // we name the session, so the office knows which floor is this tab's
   terms.set(id, t);
   win?.webContents.send('claude-session', id, t.session);
-  const p = (t.pty = pty.spawn('claude.exe', ['--settings', HOOKS, '--session-id', t.session], {
+  const p = (t.pty = pty.spawn('claude.exe', ['--settings', SETTINGS, '--session-id', t.session], {
     name: 'xterm-256color', cols, rows, cwd,
     // Classic renderer: in claude's fullscreen renderer the mouse wheel is a no-op on native Windows, and
     // classic leaves output in xterm's scrollback so the wheel scrolls it. Only affects claude started here.
-    env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !PARENT_SESSION_ENV.test(k))), CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' },
+    // The to-do tools (TaskCreate...) feed the office's whiteboard; Claude Code gives current models them only on request.
+    env: {
+      ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !PARENT_SESSION_ENV.test(k))), CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1',
+      CLAUDE_CODE_ENABLE_TODO_TOOLS: process.env.CLAUDE_CODE_ENABLE_TODO_TOOLS ?? '1',
+      AGENT_OFFICE_STATUSLINE: ownStatusLine(cwd), AGENT_OFFICE_SHELL: gitBash ? 'bash' : 'powershell',
+    },
   }));
   p.onData(d => win?.webContents.send('pty-data', id, d));
   p.onExit(() => {
