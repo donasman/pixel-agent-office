@@ -2,13 +2,17 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { spawnSync } = require('child_process');
 const crypto = require('crypto');
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const pty = require('node-pty');
 const core = require('../core/server');
 
 // The plugin's own hooks, passed with --settings so the claude started here reports even without the plugin installed.
-const HOOKS = path.join(__dirname, '..', 'plugin', 'hooks', 'hooks.json');
+// Without Git Bash, claude runs hooks in PowerShell, so that machine gets the PowerShell variant.
+const gitBash = [process.env.CLAUDE_CODE_GIT_BASH_PATH, ...['ProgramFiles', 'ProgramFiles(x86)'].map(k => process.env[k] && path.join(process.env[k], 'Git', 'bin', 'bash.exe')),
+  process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe')].find(p => p && fs.existsSync(p));
+const HOOKS = path.join(__dirname, '..', gitBash ? 'plugin' : 'plugin-powershell', 'hooks', 'hooks.json');
 // Set when this app is launched from inside a claude session; inherited, they make our claude a child of that session
 // (it then writes no transcript, so the office can't read its model). Our claude is a session of its own.
 const PARENT_SESSION_ENV = /^(CLAUDECODE|CLAUDE_PID|CLAUDE_CODE_(CHILD_SESSION|SESSION_ID|SESSION_ATTENDED|ENTRYPOINT|MESSAGING_SOCKET|MESSAGING_TOKEN))$/;

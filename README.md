@@ -50,7 +50,7 @@ Claude Code hooks ──curl──▶ local server (127.0.0.1) ──SSE──�
 - When the office isn't open there is no port file, and the hooks exit at once: nothing is sent and nothing is printed.
 - Everything stays on your machine. The server keeps only what the office draws (tool names, task names, a report's first line) and drops file contents and command output. To show the boss's model, it reads the end of the session transcript.
 
-Requirements: `bash` and `curl`. macOS and Linux have both. On Windows, Claude Code runs hooks in Git Bash, which includes curl.
+Requirements: `bash` and `curl`. macOS and Linux have both. On Windows, Claude Code runs hooks in Git Bash, which includes curl. On Windows without Git for Windows, Claude Code runs hooks in PowerShell instead: install `agent-office-powershell@agent-office` rather than `agent-office@agent-office`. (The desktop app picks the right one itself.)
 
 ## Desktop app with a built-in terminal (optional, Windows)
 

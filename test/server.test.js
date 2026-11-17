@@ -114,6 +114,13 @@ const tick = ms => new Promise(ok => setTimeout(ok, ms));
   const commands = new Set(Object.values(hooks).map(([{ hooks: [h] }]) => (assert.equal(h.async, true), assert.equal(h.type, 'command'), h.command)));
   assert.equal(commands.size, 1, 'every event uses the same command');
   assert.match([...commands][0], /\.agent-office\/port.*exit 0$/);
+  // the PowerShell variant (Windows without Git Bash) covers the same events, run by PowerShell
+  const ps = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugin-powershell', 'hooks', 'hooks.json'), 'utf8')).hooks;
+  assert.deepEqual(Object.keys(ps).sort(), used.sort());
+  for (const [{ hooks: [h] }] of Object.values(ps)) assert.deepEqual([h.type, h.async, h.shell], ['command', true, 'powershell']);
+  const versions = ['package.json', 'plugin/.claude-plugin/plugin.json', 'plugin-powershell/.claude-plugin/plugin.json'].map(f => JSON.parse(fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).version);
+  const market = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '.claude-plugin', 'marketplace.json'), 'utf8')).plugins.map(p => p.version);
+  assert.equal(new Set([...versions, ...market]).size, 1, `one version everywhere: ${versions} / ${market}`);
 
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('server ok');

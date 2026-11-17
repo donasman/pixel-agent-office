@@ -1,0 +1,184 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "shell": "powershell",
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
