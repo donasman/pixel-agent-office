@@ -26,13 +26,22 @@ Then use Claude Code as usual, in any terminal or IDE. The office opens in an ap
 | A subagent starts | A sleeping staff member wakes up with a "!" and gets the task's name |
 | Edit / Write, Read / Grep, Bash | Typing, reading papers, a terminal on the monitor |
 | A subagent finishes | Its report flies to the boss's desk; the boss reads the first line |
-| Permission prompt | A "?" bubble, a chime, and a blinking taskbar (desktop app) |
+| Permission prompt | A "?" bubble, a chime, and 허용 / 거부 buttons under the office (see below) |
+| A tool still running after 5 minutes | A "5MIN" bubble and a "!" on its floor's tab: a hung command, or claude closed mid-task |
 | A tool fails | Sweat and "OOPS"; three failures in a row make the monitor smoke |
 | `git commit` / tests pass | Confetti / the whole office claps |
 | Context compaction | A robot vacuum cleans up and the report pile is filed away |
 | Rate limit or overload | The lights go out |
 
 Click anyone to see their task, recent tools, work time and last report. Three office themes: day, late night and wood.
+
+### Answer permission prompts from the office
+
+When claude asks before running a tool, the office shows what it wants to do (`승인 요청 Claude: Bash npm install …`) with 허용 (allow) and 거부 (deny). Claude's own prompt appears in the terminal at the same time, and whichever you answer first counts. 허용 means "Yes" for this one call; for "always allow", answer in the terminal. Only the office page itself can answer, and only while it is open.
+
+### Notifications
+
+Click 알림 켜기 once (the browser asks for permission). While the office window isn't the one in front, Windows notifications tell you, from any floor, when a permission prompt is still unanswered after 5 seconds, when claude has finished, when it stopped on an error, and when a tool has been running for 5 minutes. Clicking one brings up that floor. The desktop app blinks the taskbar instead.
 
 Running several claude sessions at once? Each gets its own floor, named after its folder (`1F readme`, `2F blog`). Tabs switch floors, and the view moves to a floor that needs you (a permission prompt) or comes alive while yours is quiet; turn that off with 자동 이동. When a session ends its floor closes, and restarting claude in that folder opens it again.
 
@@ -46,7 +55,7 @@ Claude Code hooks ──curl──▶ local server (127.0.0.1) ──SSE──�
         └─ reads ~/.agent-office/port, which exists only while the office is open
 ```
 
-- The hooks run in the background (`async`), so they never slow Claude down.
+- The hooks run in the background (`async`), so they never slow Claude down. The one exception is the permission prompt's hook: it waits for an answer from the office (up to 10 minutes), while claude's own prompt is already on screen, so it holds nothing up either.
 - When the office isn't open there is no port file, and the hooks exit at once: nothing is sent and nothing is printed.
 - Everything stays on your machine. The server keeps only what the office draws (tool names, task names, a report's first line) and drops file contents and command output. To show the boss's model, it reads the end of the session transcript.
 

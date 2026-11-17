@@ -29,6 +29,15 @@
   #floors .mark { margin-left: 6px; font-weight: 700; }
   #floors .working { color: #a6e3a1; }
   #floors .waiting { color: #f9e2af; }
+  #floors .stuck, #roster .late { color: #fab387; }
+  #roster li.ask { white-space: normal; padding: 4px 0; }
+  #roster .ask .q { color: #f9e2af; font-weight: 700; }
+  #roster .ask code { padding: 0 4px; border-radius: 3px; background: #313244; font: 12px Consolas, monospace; word-break: break-all; }
+  #roster .ask button { margin-left: 6px; padding: 1px 10px; border: 1px solid #45475a; border-radius: 4px; background: #11111b; color: #cdd6f4; font: 12px "Malgun Gothic", sans-serif; cursor: pointer; }
+  #roster .ask button.allow { border-color: #a6e3a1; }
+  #roster .ask button.deny { border-color: #f38ba8; }
+  #roster .ask button:hover, #roster .ask button:focus-visible { background: #313244; }
+  #roster .ask button:disabled { opacity: 0.5; cursor: default; }
   #follow[aria-pressed="false"] { color: #7f849c; }
 </style>
 </head>
@@ -36,6 +45,7 @@
 <div id="bar">
   <div id="floors" role="tablist" aria-label="층 (claude 세션)"></div>
   <button id="follow" aria-pressed="true" title="일이 생긴 층으로 자동 이동">자동 이동</button>
+  <button id="notify" title="이 창을 안 보고 있을 때 승인 대기, 작업 완료, 멈춤을 윈도우 알림으로 알려 줘요" hidden>알림 켜기</button>
   <button id="theme" title="사무실 테마 바꾸기">주간</button>
   <button id="mute" aria-label="알림 소리 끄기" aria-pressed="false" title="알림 소리 켜기/끄기">🔔</button>
 </div>

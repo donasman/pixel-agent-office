@@ -53,11 +53,11 @@ function renderFloors() {
   const list = Object.values(building.floors).sort((a, z) => a.n - z.n);
   floorsBar.replaceChildren(...list.map(f => {
     const st = Office.floorStatus(f);
-    const mark = st.waiting ? el('span', 'mark waiting', '?') : st.working ? el('span', 'mark working', '●') : '';
+    const mark = st.waiting ? el('span', 'mark waiting', '?') : st.stuck ? el('span', 'mark stuck', '!') : st.working ? el('span', 'mark working', '●') : '';
     const tab = el('button', st.closed ? 'closed' : '', `${f.n}F ${f.project}`, mark);
     tab.setAttribute('role', 'tab');
     tab.setAttribute('aria-selected', String(f.id === current));
-    tab.title = st.closed ? '세션 종료됨' : st.waiting ? '승인 대기 중' : st.working ? '일하는 중' : '대기 중';
+    tab.title = st.closed ? '세션 종료됨' : st.waiting ? '승인 대기 중' : st.stuck ? '오래 안 끝나는 작업이 있음' : st.working ? '일하는 중' : '대기 중';
     tab.addEventListener('click', () => show(f.id));
     return tab;
   }));
@@ -65,12 +65,39 @@ function renderFloors() {
 
 // ---- roster and info card (the floor on screen) ----
 const roster = document.getElementById('roster');
+const nameOf = c => (c.kind === 'boss' ? 'Claude' : c.label || `직원 ${c.desk}`);
+const statusOf = c => Office.STATUS_KO[c.status] + (c.tool ? ` (${c.tool})` : '');
+const lateOf = c => { const ms = Office.stuckFor(c, Date.now()); return ms ? ` ⚠ ${Math.floor(ms / 60000)}분째 안 끝남` : ''; };
+// A permission prompt the office can answer: what it's about, with allow / deny.
+const firstShown = new Map(); // permission id -> when its buttons appeared: floors can switch under the cursor, so a click right after is ignored
+function askRow(c) {
+  const { id, tool, ask } = c.perm;
+  if (!firstShown.has(id)) firstShown.set(id, Date.now());
+  const answer = behavior => ev => {
+    if (Date.now() - firstShown.get(id) < 700) return;
+    const buttons = ev.currentTarget.parentElement.querySelectorAll('button');
+    buttons.forEach(b => (b.disabled = true));
+    const retry = () => buttons.forEach(b => (b.disabled = false));
+    fetch('/decide', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, behavior }) })
+      .then(r => { if (!r.ok && r.status !== 409) retry(); }, retry); // 409: answered already; the PermissionDone event clears the row
+  };
+  const btn = (label, cls) => { const b = el('button', cls, label); b.addEventListener('click', answer(cls)); return b; };
+  return el('li', 'ask', el('span', 'q', '승인 요청'), ` ${nameOf(c)}: ${tool} `, ask ? el('code', '', ask) : '', btn('허용', 'allow'), btn('거부', 'deny'));
+}
+
+let rosterKey = '';
 function renderRoster() {
-  roster.replaceChildren(...Object.values(office().chars).filter(c => c.kind === 'boss' || c.busy).map(c => {
+  const cs = Object.values(office().chars);
+  const asks = cs.filter(c => c.perm && c.status === 'waiting'), people = cs.filter(c => c.kind === 'boss' || c.busy);
+  // rebuilt only when something shown changes, so buttons stay put under the cursor
+  const key = JSON.stringify([current, asks.map(c => c.perm.id), people.map(c => [c.id, c.label, c.task, c.color, statusOf(c), lateOf(c)])]);
+  if (key === rosterKey) return;
+  rosterKey = key;
+  roster.replaceChildren(...asks.map(askRow), ...people.map(c => {
     const dot = el('span', 'dot');
     dot.style.background = c.color;
-    return el('li', '', dot, c.label + (c.task ? `: ${c.task}` : ''),
-      el('span', 'st', ` — ${Office.STATUS_KO[c.status]}${c.tool ? ` (${c.tool})` : ''}`));
+    const late = lateOf(c);
+    return el('li', '', dot, c.label + (c.task ? `: ${c.task}` : ''), el('span', 'st', ` — ${statusOf(c)}`), late ? el('span', 'late', late) : '');
   }));
 }
 
@@ -82,7 +109,7 @@ function renderCard() {
   card.hidden = !c;
   if (!c) return;
   const rows = [
-    ['상태', Office.STATUS_KO[c.status] + (c.tool ? ` (${c.tool})` : '')],
+    ['상태', statusOf(c) + lateOf(c)],
     ['맡은 일', c.task || '-'],
     ['최근 도구', c.history.join(' → ') || '-'],
     ['이번 근무', c.status !== 'sleeping' && c.since ? mmss(Date.now() - c.since) : '-'],
@@ -95,10 +122,11 @@ function renderCard() {
 }
 
 function renderAll() { renderFloors(); renderRoster(); renderCard(); }
-setInterval(() => { // ticks the work timer, closes silent floors, and finds a floor if ours went away
+setInterval(() => { // ticks the work timer, closes silent floors, finds a floor if ours went away, warns about silent people
   Office.prune(building);
   if (!floor()) { const latest = Object.values(building.floors).sort((a, z) => z.lastAt - a.lastAt)[0]; show(latest ? latest.id : null); }
   renderAll();
+  warnStuck();
 }, 1000);
 
 // ---- attention sounds, synthesized (no audio files); muting is a per-viewer preference ----
@@ -126,6 +154,40 @@ function beep(freqs) {
   });
 }
 function notify(freqs) { toShell('flash'); if (!muted) beep(freqs); }
+
+// ---- desktop notifications: what needs you, on any floor, while this window isn't the one in front ----
+const notifyBtn = document.getElementById('notify');
+// shortcut: no toasts in the desktop app: Windows shows an unpackaged Electron app's only with a Start Menu shortcut; it
+// blinks the taskbar instead. Add a shortcut (shell.writeShortcutLink) if the app ever gets an installer.
+const canToast = !embedded && 'Notification' in window;
+const showNotifyBtn = () => { notifyBtn.hidden = !canToast || Notification.permission !== 'default'; };
+showNotifyBtn();
+notifyBtn.addEventListener('click', () => Notification.requestPermission().then(showNotifyBtn));
+function toast(f, title, body) {
+  if (appFocused || !canToast || Notification.permission !== 'granted') return;
+  const n = new Notification(`${f.n}F ${f.project}: ${title}`, { body, tag: f.id, silent: true }); // one per floor; the sound is our beep
+  n.onclick = () => { window.focus(); toShell('raise'); show(f.id); n.close(); };
+}
+const lineOf = (text, n = 120) => { // the first line that says something: markdown headings skipped
+  const lines = String(text || '').split('\n').map(l => l.trim()).filter(Boolean);
+  return (lines.find(l => !l.startsWith('#')) || lines[0] || '').replace(/\*\*|__|`/g, '').slice(0, n);
+};
+
+// A tool that won't finish: say so once. People already silent when the page (re)connects stay quiet; the extra
+// 2 minutes cover a background window whose timers the browser slows to once a minute.
+function warnStuck() {
+  const now = Date.now();
+  for (const f of Object.values(building.floors)) {
+    if (f.closedAt) continue;
+    for (const c of Object.values(f.state.chars)) {
+      const late = Office.stuckFor(c, now);
+      if (!late || late > Office.STUCK_MS + 120000 || c.warnedAt === c.seenAt) continue;
+      c.warnedAt = c.seenAt;
+      notify([520]);
+      toast(f, `${Math.floor(late / 60000)}분째 안 끝나는 작업`, `${nameOf(c)}: ${statusOf(c)} — 멈추지 않았는지 확인해 보세요`);
+    }
+  }
+}
 
 // ---- the office's art, from the pixel-art design (tools/import-design.js); until it loads the canvas stays plain ----
 const THEME_KO = { day: '주간', night: '야근', wood: '우드' };
@@ -158,8 +220,15 @@ function apply(e) {
   choose(f, e, replayed);
   renderAll();
   if (replayed) return;
-  if (e.hook_event_name === 'PermissionRequest') notify([880, 1320]); // claude needs an answer, on whatever floor
-  else if (e.hook_event_name === 'Stop' && !appFocused) notify([660]); // done while you were elsewhere
+  const ev = e.hook_event_name, c = f.state.chars[f.state.who[e.agent_id || e.session_id]];
+  if (ev === 'PermissionRequest') { // claude needs an answer, on whatever floor
+    notify([880, 1320]);
+    const what = `${c ? nameOf(c) : 'Claude'}: ${e.tool_name || ''} ${lineOf(e.ask)}${e._perm ? ' — 사무실에서 허용/거부할 수 있어요' : ''}`;
+    setTimeout(() => { if (c?.status === 'waiting' && !f.closedAt) toast(f, '승인 대기', what); }, 5000); // answered in the terminal by then: no toast
+  } else if (ev === 'Stop' && !appFocused) { // done while you were elsewhere
+    notify([660]);
+    toast(f, '작업 완료', lineOf(e.last_assistant_message) || 'Claude가 다음 지시를 기다려요');
+  } else if (ev === 'StopFailure') toast(f, '작업 중단', e.error || '오류');
 }
 
 const events = new EventSource('/stream');

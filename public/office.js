@@ -33,8 +33,8 @@
   function newChar(id, kind, desk, n) {
     return {
       id, kind, desk, n, label: kind === 'boss' ? 'Claude' : '', task: '', status: 'sleeping', tool: null,
-      busy: false, jobs: 0, history: [], since: 0, wokeAt: 0, petAt: 0,
-      say: null, oopsAt: 0, failStreak: 0, lastReport: '', handback: '', model: null,
+      busy: false, jobs: 0, history: [], since: 0, wokeAt: 0, petAt: 0, seenAt: 0,
+      say: null, oopsAt: 0, failStreak: 0, lastReport: '', handback: '', model: null, perm: null,
       color: kind === 'boss' ? OUTFITS.sonnet : kind === 'temp' ? TEMP_SHIRT : SHIRTS[(desk - 1) % SHIRTS.length],
     };
   }
@@ -97,7 +97,7 @@
     const id = e.agent_id || e.session_id;
     if (!id) return null;
     if (s.who[id]) return s.chars[s.who[id]];
-    if (e.hook_event_name === 'SubagentStop') return null;
+    if (e.hook_event_name === 'SubagentStop' || e.hook_event_name === 'PermissionDone') return null;
     if (e.agent_id && s.gone.has(e.agent_id)) return null; // late event from a finished subagent: don't wake anyone
     // the first session is the boss; /clear, resume and compact give the boss a new session id
     if (!e.agent_id && (!s.bossSession || ['clear', 'resume', 'compact'].includes(e.source))) {
@@ -129,6 +129,7 @@
     if (handback && s.gone.has(e.agent_id)) return lateReport(s, s.gone.get(e.agent_id), handback);
     const c = charFor(s, e, now);
     if (!c) return s;
+    c.seenAt = now; // the last sign of life, for stuckFor()
     if (handback) c.handback = handback; // interactive claude: subagents report through this tool, not their last message
     const ev = e.hook_event_name, cmd = e.tool_name === 'Bash' ? String(e.tool_input?.command || '') : '';
     if (c.kind === 'boss' && e.model) setModel(s, e.model); // the server reads it from the transcript
@@ -144,7 +145,16 @@
         wake(c, TOOL_STATUS[e.tool_name] || 'working', now);
         c.tool = e.tool_name === 'SubagentHandback' ? '보고서' : e.tool_name;
         break;
-      case 'PermissionRequest': wake(c, 'waiting', now); break;
+      case 'PermissionRequest': // _perm: the office can answer it (the server is holding the hook)
+        wake(c, 'waiting', now);
+        c.perm = e._perm ? { id: e._perm, tool: e.tool_name || '', ask: e.ask || '' } : null;
+        break;
+      case 'PermissionDone': // answered (here or in the terminal), or no longer answerable from here
+        if (c.perm?.id !== e._perm) break;
+        c.perm = null;
+        if (c.status === 'waiting' && e.behavior === 'allow') c.status = TOOL_STATUS[c.tool] || 'working';
+        else if (c.status === 'waiting' && e.behavior === 'deny') c.status = 'thinking';
+        break;
       case 'PostToolUse':
         markDone(s, e.tool_use_id);
         if (TOOL_STATUS[e.tool_name] === 'delegating' && e.tool_response?.agentId) assignTask(s, e.tool_response.agentId, e.tool_input?.description || '');
@@ -193,6 +203,12 @@
     return s;
   }
 
+  // A tool that hasn't finished in this long: a hung command, or claude closed mid-task. Only while a tool runs: after
+  // Esc mid-answer no hook fires at all, so a silent "thinking" proves nothing. Not while it waits for you, or for a
+  // subagent (that one is checked itself). Returns how long it has been silent, or 0.
+  const STUCK_MS = 5 * 60 * 1000;
+  const stuckFor = (c, now) => (!c.tool || ['waiting', 'delegating'].includes(c.status) || now - c.seenAt < STUCK_MS ? 0 : now - c.seenAt);
+
   // ---- the building: one floor (a whole office) per claude session ----
   const CLOSED_KEEP_MS = 10 * 60 * 1000; // a closed floor stays, lights off, so a restart in the same folder reopens it
   const STALE_MS = 2 * 60 * 60 * 1000; // silent this long = claude was killed without a SessionEnd
@@ -212,7 +228,7 @@
     if (ev === 'SessionStart') b.ended.delete(sid); // claude --resume brings an ended session back
     if (b.ended.has(sid)) return null; // a straggler from a session that already ended (hooks are async)
     if (b.alias[sid]) return b.floors[b.alias[sid]] || null;
-    if (ev === 'SessionEnd' || ev === 'SubagentStop') return null;
+    if (ev === 'SessionEnd' || ev === 'SubagentStop' || ev === 'PermissionDone') return null;
     const here = Object.values(b.floors).filter(f => f.project === project);
     let f = null;
     if (ev === 'SessionStart' && ['clear', 'compact'].includes(e.source)) { // same terminal, new session id
@@ -261,10 +277,10 @@
     }
   }
 
-  // What a floor's tab shows: busy, someone waiting for you, or closed.
-  function floorStatus(f) {
-    const cs = Object.values(f.state.chars);
-    return { closed: !!f.closedAt, waiting: !f.closedAt && cs.some(c => c.status === 'waiting'), working: !f.closedAt && cs.some(c => c.status !== 'sleeping') };
+  // What a floor's tab shows: busy, someone waiting for you, someone silent too long, or closed.
+  function floorStatus(f, now = Date.now()) {
+    const cs = f.closedAt ? [] : Object.values(f.state.chars);
+    return { closed: !!f.closedAt, waiting: cs.some(c => c.status === 'waiting'), working: cs.some(c => c.status !== 'sleeping'), stuck: cs.some(c => stuckFor(c, now) > 0) };
   }
 
   // Top-left of a person's sprite: 16x28 seated cells sit at (desk.x+17, desk.y-15); temps stand.
@@ -384,6 +400,8 @@
       return c.say.icon ? iconBubble(ctx, R, c.say.icon, cx, bottom) : textBubble(R, c.say.text, cx, bottom, { ink: c.say.ink });
     }
     if (c.status === 'sleeping') return p.standing ? null : zzz(ctx, R, p, t, c.n);
+    const late = stuckFor(c, now);
+    if (late) return textBubble(R, Math.floor(late / 60000) + 'MIN', cx, bottom, { hot: true });
     iconBubble(ctx, R, now - c.wokeAt < 900 ? 'wake' : ICON_FOR[c.status], cx, bottom);
   }
 
@@ -469,7 +487,7 @@
     }
   }
 
-  const Office = { createState, reduce, createBuilding, route, prune, floorStatus, step, hit, setModel, useArt, setTheme, themes, plateText, STATUS_KO };
+  const Office = { createState, reduce, createBuilding, route, prune, floorStatus, stuckFor, STUCK_MS, step, hit, setModel, useArt, setTheme, themes, plateText, STATUS_KO };
   if (typeof module === 'object') module.exports = Office;
   else window.Office = Office;
 })();

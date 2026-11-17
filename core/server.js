@@ -1,5 +1,5 @@
 // Agent Office core: receives Claude Code hook events (POST /events), streams them to office pages (GET /stream, SSE)
-// and serves the office page (public/). While running it writes its port to ~/.agent-office/port: that file is how the
+// and serves the office page (public/). Permission prompts can be answered from a page (POST /permission, /decide). While running it writes its port to ~/.agent-office/port: that file is how the
 // hooks find it, and no file means the hooks stay silent. One server per machine: a second start attaches to the first.
 const crypto = require('crypto');
 const http = require('http');
@@ -25,6 +25,8 @@ function slim(e) {
     is_interrupt: e.is_interrupt, error: cut(e.error, 200), notification_type: e.notification_type, message: cut(e.message, 200),
     last_assistant_message: cut(e.last_assistant_message, 400), to_model: e.to_model, trigger: e.trigger, reason: cut(e.reason, 40),
     project: typeof e.cwd === 'string' ? path.basename(e.cwd).slice(0, 60) : undefined, // the folder's name names its floor, not the whole path
+    // what a permission prompt is about, for answering it from the office
+    ask: e.hook_event_name === 'PermissionRequest' ? cut(ti.command ?? ti.file_path ?? ti.url ?? JSON.stringify(ti), 300) : undefined,
   };
 }
 
@@ -64,6 +66,8 @@ function modelOf(e) {
   return models.get(e.session_id);
 }
 
+const sha1 = b => crypto.createHash('sha1').update(b).digest('hex');
+
 function isOffice(port) {
   return new Promise(ok => {
     const r = http.get({ host: '127.0.0.1', port, path: '/health', timeout: 500 }, res => {
@@ -88,31 +92,99 @@ async function start({
 
   const send = (res, status, type, body) => { res.writeHead(status, type ? { 'Content-Type': type } : {}); res.end(body); };
 
-  function receive(req, res) {
-    // only the hooks' curl sends JSON; a web page can't without a CORS preflight we never answer
+  function broadcast(out) {
+    log.push(out);
+    if (log.length > LOG_MAX) log.shift();
+    const msg = `data: ${JSON.stringify(out)}\n\n`;
+    for (const c of clients) c.write(msg);
+  }
+
+  function readJson(req, res, max, done) {
+    // only the hooks' curl and the office page send JSON; another site can't without a CORS preflight we never answer
     if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415);
     let size = 0;
     const chunks = [];
     req.on('data', d => {
       size += d.length;
-      if (size > MAX_BODY) { send(res, 413); req.destroy(); } else chunks.push(d);
+      if (size > max) { send(res, 413); req.destroy(); } else chunks.push(d);
     });
     req.on('end', () => {
       if (res.writableEnded) return;
       const raw = Buffer.concat(chunks);
-      let e;
-      try { e = JSON.parse(raw.toString('utf8')); } catch { return send(res, 400); }
+      let v;
+      try { v = JSON.parse(raw.toString('utf8')); } catch { return send(res, 400); }
+      done(v, raw);
+    });
+  }
+
+  // Answering from the office: the PermissionRequest hook POSTs to /permission and waits for the reply. Claude shows
+  // its own dialog meanwhile and takes whichever answer comes first, so holding the hook never blocks the terminal.
+  const pending = new Map(); // id -> { id, key, sid, aid, tool, input, hooks: [res], timer }
+  const HOLD_MS = 590 * 1000; // just under claude's 600 s hook timeout
+
+  // The question is over: send the hook its decision (none: claude's dialog stays in charge) and tell the pages.
+  function settle(id, behavior, decision) {
+    const p = pending.get(id);
+    if (!p) return;
+    pending.delete(id);
+    clearTimeout(p.timer);
+    for (const r of p.hooks) if (!r.writableEnded) decision ? send(r, 200, 'application/json', JSON.stringify(decision)) : send(r, 204);
+    broadcast({ hook_event_name: 'PermissionDone', session_id: p.sid, agent_id: p.aid, _perm: id, behavior, _t: Date.now() });
+  }
+
+  function hold(p, res) {
+    p.hooks.push(res);
+    res.on('close', () => { // claude killed the hook (timeout, exit): nobody to answer
+      if (res.writableEnded) return;
+      p.hooks = p.hooks.filter(r => r !== res);
+      if (!p.hooks.length) settle(p.id, 'gone');
+    });
+  }
+
+  // Events that show the question was answered in the terminal, or no longer matters, let the hook go.
+  const ENDS = new Set(['Stop', 'StopFailure', 'SubagentStop', 'UserPromptSubmit']);
+  function answered(e) {
+    const ev = e.hook_event_name;
+    for (const p of [...pending.values()]) {
+      if (p.sid !== e.session_id) continue;
+      const mine = p.aid === e.agent_id;
+      const ran = (ev === 'PostToolUse' || ev === 'PostToolUseFailure') && e.tool_name === p.tool && sha1(JSON.stringify(e.tool_input)) === p.input;
+      if (ev === 'SessionEnd' || (mine && (ENDS.has(ev) || ran))) settle(p.id, 'terminal');
+    }
+  }
+
+  function receive(req, res, ask) {
+    readJson(req, res, MAX_BODY, (e, raw) => {
       if (!e || typeof e.hook_event_name !== 'string') return send(res, 400);
-      send(res, 204);
-      const now = Date.now(), key = crypto.createHash('sha1').update(raw).digest('hex');
+      const now = Date.now(), key = sha1(raw);
       for (const [k, t] of recent) { if (now - t <= 5000) break; recent.delete(k); }
-      if (recent.has(key)) return; // distinct events always differ (tool_use_id, prompt_id, agent_id...)
+      if (recent.has(key)) { // distinct events always differ (tool_use_id, prompt_id, agent_id...): the same hook registered twice
+        const p = ask && [...pending.values()].find(x => x.key === key);
+        return p ? hold(p, res) : send(res, 204);
+      }
       recent.set(key, now);
       const out = { ...slim(e), model: modelOf(e), _t: now };
-      log.push(out);
-      if (log.length > LOG_MAX) log.shift();
-      const msg = `data: ${JSON.stringify(out)}\n\n`;
-      for (const c of clients) c.write(msg);
+      if (ask && clients.size) { // the office is open: wait for a page or the terminal to answer
+        const id = crypto.randomUUID();
+        const p = { id, key, sid: e.session_id, aid: e.agent_id, tool: e.tool_name, input: sha1(JSON.stringify(e.tool_input)), hooks: [], timer: setTimeout(() => settle(id, 'expired'), HOLD_MS) };
+        pending.set(id, p);
+        hold(p, res);
+        out._perm = id;
+      } else send(res, 204);
+      broadcast(out);
+      answered(e);
+    });
+  }
+
+  function decide(req, res) {
+    // only the office page itself: browsers always send Origin on a POST
+    if (![`http://127.0.0.1:${actual}`, `http://localhost:${actual}`].includes(req.headers.origin)) return send(res, 403);
+    readJson(req, res, 1024, v => {
+      const { id, behavior } = v || {};
+      if (!pending.has(id) || !['allow', 'deny'].includes(behavior)) return send(res, 409); // answered already, or never asked
+      const decision = behavior === 'allow' ? { behavior } : { behavior, message: 'The user denied this from the Agent Office window.' };
+      settle(id, behavior, { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } });
+      send(res, 204);
     });
   }
 
@@ -135,7 +207,9 @@ async function start({
     // DNS rebinding guard: only answer requests addressed to this machine's loopback
     if (req.headers.host !== `127.0.0.1:${actual}` && req.headers.host !== `localhost:${actual}`) return send(res, 403);
     const { pathname } = new URL(req.url, 'http://127.0.0.1');
-    if (req.method === 'POST' && pathname === '/events') return receive(req, res);
+    if (req.method === 'POST' && pathname === '/events') return receive(req, res, false);
+    if (req.method === 'POST' && pathname === '/permission') return receive(req, res, true);
+    if (req.method === 'POST' && pathname === '/decide') return decide(req, res);
     if (req.method !== 'GET') return send(res, 405);
     if (pathname === '/health') return send(res, 200, 'application/json', JSON.stringify({ app: 'agent-office', port: actual, pages: clients.size }));
     if (pathname === '/stream') return stream(req, res);
@@ -164,6 +238,7 @@ async function start({
     pages: () => clients.size, // office pages connected right now
     close: () => new Promise(ok => {
       removePortFile(); // first, so hooks go quiet even if closing the sockets takes a while
+      for (const id of [...pending.keys()]) settle(id, 'closed'); // waiting hooks go back to claude's own dialog
       for (const c of clients) c.end();
       server.close(() => ok());
     }),

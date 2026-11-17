@@ -7,13 +7,13 @@
       "name": "agent-office",
       "source": "./plugin",
       "description": "Pixel-art office for your Claude Code subagents. Pair with the viewer: npx pixel-agent-office",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "name": "agent-office-powershell",
       "source": "./plugin-powershell",
       "description": "The same, for Windows without Git for Windows (hooks run by PowerShell). Pair with the viewer: npx pixel-agent-office",
-      "version": "0.2.0"
+      "version": "0.3.0"
     }
   ]
 }

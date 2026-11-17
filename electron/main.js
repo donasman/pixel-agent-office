@@ -42,6 +42,7 @@ ipcMain.on('start', (_, cols, rows) => startClaude(cols, rows));
 ipcMain.on('pty-write', (_, d) => term?.write(d));
 ipcMain.on('pty-resize', (_, cols, rows) => term?.resize(cols, rows));
 ipcMain.on('flash', () => { if (win && !win.isFocused()) win.flashFrame(true); }); // taskbar blink when claude needs you
+ipcMain.on('raise', () => { if (!win) return; if (win.isMinimized()) win.restore(); win.focus(); });
 
 app.whenReady().then(async () => {
   cwd = process.argv[2];

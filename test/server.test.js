@@ -39,6 +39,20 @@ const listen = (port, n = 1) => new Promise(ok => {
   });
 });
 const tick = ms => new Promise(ok => setTimeout(ok, ms));
+// an office page that stays open: every event it gets lands in .got
+const watch = port => {
+  const got = [];
+  const req = http.get({ host: '127.0.0.1', port, path: '/stream' }, res => {
+    let b = '';
+    res.on('data', d => {
+      b += d;
+      let i;
+      while ((i = b.indexOf('\n\n')) >= 0) { const block = b.slice(0, i); if (block.startsWith('data: ')) got.push(JSON.parse(block.slice(6))); b = b.slice(i + 2); }
+    });
+  });
+  req.on('error', () => {});
+  return { got, close: () => req.destroy() };
+};
 
 (async () => {
   const a = await core.start({ port: 0 });
@@ -103,7 +117,79 @@ const tick = ms => new Promise(ok => setTimeout(ok, ms));
   assert.equal(outDir.model, undefined, 'files outside the claude dir are not read');
   assert.equal(inDir.transcript_path, undefined, 'paths are not streamed');
 
+  // --- answering a permission prompt from the office ---
+  const origin = `http://127.0.0.1:${a.port}`;
+  const ask = (command, extra = {}) => request(a.port, { method: 'POST', path: '/permission', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hook_event_name: 'PermissionRequest', session_id: 'P', tool_name: 'Bash', tool_input: { command }, ...extra }) });
+  const decide = (id, behavior, headers = { Origin: origin }) => request(a.port, { method: 'POST', path: '/decide', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ id, behavior }) });
+  const askedFor = (page, command) => page.got.find(x => x.hook_event_name === 'PermissionRequest' && x.ask === command);
+  const doneFor = (page, id) => page.got.find(x => x.hook_event_name === 'PermissionDone' && x._perm === id);
+
+  await tick(100); // the pages above have closed
+  let t0 = Date.now();
+  assert.equal((await ask('nobody looking')).status, 204, 'no office page open: the hook returns at once');
+  assert.ok(Date.now() - t0 < 1000);
+
+  const office = watch(a.port);
+  await tick(100);
+  const allowed = ask('npm install left-pad');
+  await tick(100);
+  const q = askedFor(office, 'npm install left-pad');
+  assert.ok(q && q._perm, 'the page gets the question with an id to answer');
+  assert.equal((await decide(q._perm, 'allow', {})).status, 403, 'no Origin: not the office page');
+  assert.equal((await decide(q._perm, 'allow', { Origin: 'http://evil.example' })).status, 403, 'another site');
+  assert.equal((await decide('nope', 'allow')).status, 409);
+  assert.equal((await decide(q._perm, 'maybe')).status, 409);
+  assert.equal((await decide(q._perm, 'allow')).status, 204);
+  const reply = await allowed;
+  assert.deepEqual([reply.status, JSON.parse(reply.body)], [200, { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } }], "the hook prints claude's allow");
+  await tick(50);
+  assert.equal(doneFor(office, q._perm).behavior, 'allow', 'every page hears it was answered');
+  assert.equal((await decide(q._perm, 'deny')).status, 409, 'answered once only');
+
+  const denied = ask('rm -rf build');
+  await tick(100);
+  await decide(askedFor(office, 'rm -rf build')._perm, 'deny');
+  const no = JSON.parse((await denied).body).hookSpecificOutput.decision;
+  assert.deepEqual([no.behavior, typeof no.message], ['deny', 'string'], 'a deny tells claude why');
+
+  // answered in the terminal: the tool's PostToolUse lets the hook go, another tool's does not
+  let settled = false;
+  const viaTerminal = ask('touch b.txt').then(r => ((settled = true), r));
+  await tick(100);
+  const tq = askedFor(office, 'touch b.txt');
+  await post(a.port, { hook_event_name: 'PostToolUse', session_id: 'P', tool_name: 'Bash', tool_use_id: 'X1', tool_input: { command: 'ls' } });
+  await tick(100);
+  assert.equal(settled, false, "another tool's result is not the answer");
+  await post(a.port, { hook_event_name: 'PostToolUse', session_id: 'P', tool_name: 'Bash', tool_use_id: 'X2', tool_input: { command: 'touch b.txt' } });
+  assert.equal((await viaTerminal).status, 204, 'no decision: the terminal answered');
+  await tick(50);
+  assert.equal(doneFor(office, tq._perm).behavior, 'terminal');
+
+  // the same hook registered twice (plugin + --settings): both copies get the answer
+  const twin = () => ask('npm publish', { agent_id: 'sub1' });
+  const [copy1, copy2] = [twin(), twin()];
+  await tick(100);
+  assert.equal(office.got.filter(x => x.ask === 'npm publish').length, 1, 'asked once on the page');
+  await decide(askedFor(office, 'npm publish')._perm, 'allow');
+  assert.deepEqual([(await copy1).status, (await copy2).status], [200, 200]);
+
+  // the hook killed by claude (its timeout, or claude quit): the question goes away
+  const gone = http.request({ host: '127.0.0.1', port: a.port, method: 'POST', path: '/permission', headers: { 'Content-Type': 'application/json' } });
+  gone.on('error', () => {});
+  gone.end(JSON.stringify({ hook_event_name: 'PermissionRequest', session_id: 'P', tool_name: 'Bash', tool_input: { command: 'sleep 1000' } }));
+  await tick(100);
+  const gq = askedFor(office, 'sleep 1000');
+  gone.destroy();
+  await tick(100);
+  assert.equal(doneFor(office, gq._perm).behavior, 'gone');
+
+  // closing the office lets a waiting hook go at once, back to claude's own dialog
+  const left = ask('git push');
+  await tick(100);
+  t0 = Date.now();
   await a.close();
+  assert.equal((await left).status, 204);
+  office.close();
   assert.ok(!fs.existsSync(portFile), 'closing removes the port file, so hooks go quiet');
 
   // the hooks the plugin installs: one silent async command per event the office uses
@@ -111,13 +197,17 @@ const tick = ms => new Promise(ok => setTimeout(ok, ms));
   const used = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest',
     'SubagentStart', 'SubagentStop', 'Notification', 'Stop', 'StopFailure', 'PreCompact', 'PostCompact', 'PostModelSwitch', 'SessionEnd'];
   assert.deepEqual(Object.keys(hooks).sort(), used.sort());
-  const commands = new Set(Object.values(hooks).map(([{ hooks: [h] }]) => (assert.equal(h.async, true), assert.equal(h.type, 'command'), h.command)));
-  assert.equal(commands.size, 1, 'every event uses the same command');
+  const { PermissionRequest: [{ hooks: [asker] }], ...rest } = hooks;
+  const commands = new Set(Object.values(rest).map(([{ hooks: [h] }]) => (assert.equal(h.async, true), assert.equal(h.type, 'command'), h.command)));
+  assert.equal(commands.size, 1, 'every other event uses the same command');
   assert.match([...commands][0], /\.agent-office\/port.*exit 0$/);
+  // the permission prompt's hook waits for the office's answer and prints it, so it can't be async
+  assert.deepEqual([asker.type, asker.async], ['command', undefined]);
+  assert.match(asker.command, /\.agent-office\/port.*\/permission".*exit 0$/);
   // the PowerShell variant (Windows without Git Bash) covers the same events, run by PowerShell
   const ps = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugin-powershell', 'hooks', 'hooks.json'), 'utf8')).hooks;
   assert.deepEqual(Object.keys(ps).sort(), used.sort());
-  for (const [{ hooks: [h] }] of Object.values(ps)) assert.deepEqual([h.type, h.async, h.shell], ['command', true, 'powershell']);
+  for (const [e, [{ hooks: [h] }]] of Object.entries(ps)) assert.deepEqual([h.type, h.async, h.shell, h.command.includes('/permission')], ['command', e === 'PermissionRequest' ? undefined : true, 'powershell', e === 'PermissionRequest']);
   const versions = ['package.json', 'plugin/.claude-plugin/plugin.json', 'plugin-powershell/.claude-plugin/plugin.json'].map(f => JSON.parse(fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).version);
   const market = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '.claude-plugin', 'marketplace.json'), 'utf8')).plugins.map(p => p.version);
   assert.equal(new Set([...versions, ...market]).size, 1, `one version everywhere: ${versions} / ${market}`);

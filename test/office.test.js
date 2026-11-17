@@ -181,13 +181,62 @@ for (const c of Object.values(chars)) if (c.say?.text) assert.match(c.say.text, 
   const three = go('C', 'SessionStart', { source: 'startup' }, 3100);
   assert.equal(three.n, 3);
   go('C', 'PermissionRequest', { tool_name: 'Write' }, 3200);
-  assert.deepEqual(Office.floorStatus(three), { closed: false, waiting: true, working: true });
+  assert.deepEqual(Office.floorStatus(three, 3300), { closed: false, waiting: true, working: true, stuck: false });
 
   // silent for hours = killed without SessionEnd; closed floors go away after 10 minutes
   Office.prune(b, 3200 + 3 * 3600e3);
   assert.equal(Office.floorStatus(two).closed, true);
   Office.prune(b, 3200 + 3 * 3600e3 + 11 * 60e3);
   assert.deepEqual(Object.keys(b.floors), [], 'closed floors are taken away');
+}
+
+// --- silent too long: a hung command, or claude closed mid-task ---
+{
+  const b = Office.createBuilding(), M = 60e3;
+  const go = (hook_event_name, extra, now) => Office.route(b, { session_id: 'Q', project: 'p', hook_event_name, ...extra }, now);
+  const f = go('UserPromptSubmit', {}, 0), { boss } = f.state.chars;
+  go('PreToolUse', { tool_name: 'Bash', tool_use_id: 'q1', tool_input: { command: 'npm run dev' } }, 1000);
+  assert.equal(Office.stuckFor(boss, 1000 + 4 * M), 0, '4 minutes is still fine');
+  assert.equal(Office.stuckFor(boss, 1000 + 6 * M), 6 * M, 'a command silent for 6 minutes');
+  assert.equal(Office.floorStatus(f, 1000 + 6 * M).stuck, true);
+  go('PostToolUse', { tool_name: 'Bash', tool_use_id: 'q1' }, 2000);
+  assert.equal(Office.stuckFor(boss, 2000 + 4 * M), 0, 'any event is a sign of life');
+
+  go('PreToolUse', { tool_name: 'Agent', tool_use_id: 'q2', tool_input: { description: 'dig' } }, 3000);
+  go('SubagentStart', { agent_id: 'qa', agent_type: 'Explore' }, 3000);
+  const sub = f.state.chars[f.state.who.qa];
+  assert.equal(Office.stuckFor(sub, 3000 + 6 * M), 0, 'thinking without a tool proves nothing (Esc sends no event)');
+  go('PreToolUse', { agent_id: 'qa', tool_name: 'Bash', tool_use_id: 'q3', tool_input: { command: 'npm test' } }, 3000);
+  assert.equal(Office.stuckFor(boss, 3000 + 10 * M), 0, 'the boss waiting on a subagent is not stuck');
+  assert.equal(Office.stuckFor(sub, 3000 + 6 * M), 6 * M, "the subagent's silent command is");
+  go('PermissionRequest', { agent_id: 'qa', tool_name: 'Bash' }, 4000);
+  assert.equal(Office.stuckFor(sub, 4000 + 60 * M), 0, 'waiting for you is not stuck');
+  go('SubagentStop', { agent_id: 'qa' }, 5000);
+  go('PostToolUse', { tool_name: 'Agent', tool_use_id: 'q2' }, 5000);
+  go('Stop', {}, 5001);
+  assert.equal(Office.floorStatus(f, 5001 + 60 * M).stuck, false, 'asleep is not stuck');
+  go('UserPromptSubmit', {}, 6000);
+  go('SessionEnd', { reason: 'other' }, 6001);
+  assert.equal(Office.floorStatus(f, 6001 + 60 * M).stuck, false, 'a closed floor is not stuck');
+}
+
+// --- answering a permission prompt from the office (the server adds _perm while it holds the hook) ---
+{
+  const b = Office.createBuilding();
+  const go = (hook_event_name, extra = {}) => Office.route(b, { session_id: 'W', project: 'p', hook_event_name, ...extra }, 1000);
+  const f = go('UserPromptSubmit'), { boss } = f.state.chars;
+  go('PreToolUse', { tool_name: 'Bash', tool_use_id: 'w1' });
+  go('PermissionRequest', { tool_name: 'Bash', ask: 'npm i', _perm: 'K1' });
+  assert.deepEqual([boss.status, boss.perm], ['waiting', { id: 'K1', tool: 'Bash', ask: 'npm i' }]);
+  go('PermissionDone', { _perm: 'OTHER', behavior: 'allow' });
+  assert.equal(boss.perm.id, 'K1', "another question's answer changes nothing");
+  go('PermissionDone', { _perm: 'K1', behavior: 'allow' });
+  assert.deepEqual([boss.status, boss.perm], ['running', null], 'allowed: the command runs');
+  go('PermissionRequest', { tool_name: 'Bash', ask: 'rm x' });
+  assert.equal(boss.perm, null, 'no _perm: the office has no way to answer it');
+  assert.equal(go('PermissionDone', { session_id: 'NEW', _perm: 'K9', behavior: 'gone' }), null, 'an answer for an unknown session opens no floor');
+  go('PermissionDone', { agent_id: 'ghost', _perm: 'K9', behavior: 'gone' });
+  assert.equal(Object.values(f.state.chars).filter(c => c.busy).length, 0, 'and wakes nobody');
 }
 
 console.log('office reducer ok');

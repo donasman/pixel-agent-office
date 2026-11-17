@@ -17,6 +17,7 @@ window.addEventListener('message', m => {
   if (m.origin !== officeOrigin || !m.data) return;
   if (m.data.agentOffice === 'flash') bridge.flash();
   else if (m.data.agentOffice === 'focus-terminal') term.focus();
+  else if (m.data.agentOffice === 'raise') bridge.raise(); // a notification was clicked
 });
 bridge.onWindowFocus(focused => toOffice('focus', focused));
 // tell the office which session is ours (again once its page has loaded: the first message can arrive before it)

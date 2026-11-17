@@ -65,9 +65,8 @@
         "hooks": [
           {
             "type": "command",
-            "async": true,
             "shell": "powershell",
-            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p.Trim() + '/events') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 2 | Out-Null } catch {} }; exit 0"
+            "command": "$p = Get-Content -Raw \"$HOME\\.agent-office\\port\" -ErrorAction SilentlyContinue; $in = New-Object IO.MemoryStream; [Console]::OpenStandardInput().CopyTo($in); if ($p) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri ('http://127.0.0.1:' + $p.Trim() + '/permission') -Method Post -ContentType 'application/json' -Body $in.ToArray() -TimeoutSec 600; if ($r.StatusCode -eq 200) { [Console]::Out.Write($r.Content) } } catch {} }; exit 0"
           }
         ]
       }

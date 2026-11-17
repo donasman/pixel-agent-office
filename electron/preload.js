@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('bridge', {
   write: d => ipcRenderer.send('pty-write', d),
   resize: (cols, rows) => ipcRenderer.send('pty-resize', cols, rows),
   flash: () => ipcRenderer.send('flash'),
+  raise: () => ipcRenderer.send('raise'),
   onData: cb => ipcRenderer.on('pty-data', (_, d) => cb(d)),
   onExit: cb => ipcRenderer.on('pty-exit', () => cb()),
   onWindowFocus: cb => ipcRenderer.on('win-focus', (_, focused) => cb(focused)),
