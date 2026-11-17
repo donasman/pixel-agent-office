@@ -68,6 +68,29 @@ function beep(freqs) {
 }
 function notify(freqs) { toShell('flash'); if (!muted) beep(freqs); }
 
+// The office's art comes from the pixel-art design (tools/import-design.js). Until it loads the canvas stays plain.
+const THEME_KO = { day: '주간', night: '야근', wood: '우드' };
+const themeBtn = document.getElementById('theme');
+let themeName = 'day';
+try { themeName = localStorage.getItem('theme') || 'day'; } catch {}
+const showTheme = () => { themeName = Office.setTheme(themeName); themeBtn.textContent = THEME_KO[themeName] || themeName; };
+themeBtn.addEventListener('click', () => {
+  const list = Office.themes();
+  themeName = list[(list.indexOf(themeName) + 1) % list.length] || 'day';
+  showTheme();
+  try { localStorage.setItem('theme', themeName); } catch {}
+});
+const loadImg = src => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => fail(new Error('art/' + src)); i.src = 'art/' + src; });
+fetch('art/art.json').then(r => r.json()).then(async art => {
+  const [people, standing, bubbles, screens] = await Promise.all([art.people.file, art.standing.file, art.bubbles.file, art.screens.file].map(loadImg));
+  const themes = {};
+  for (const [name, t] of Object.entries(art.themes)) {
+    themes[name] = { room: await loadImg(t.room), people: t.people ? await loadImg(t.people) : people, standing: t.standing ? await loadImg(t.standing) : standing };
+  }
+  Office.useArt(art, { themes, bubbles, screens });
+  showTheme();
+}).catch(err => console.error('office art failed to load:', err.message));
+
 function apply(e) {
   if (e._t < resetAt) return;
   Office.reduce(state, e, e._t); // the server's receive time, so replayed history doesn't replay its effects

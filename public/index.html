@@ -19,14 +19,16 @@
   #card .k { display: inline-block; width: 64px; color: #a6adc8; }
   #card-close { position: absolute; top: 4px; right: 6px; border: 0; background: none; color: #a6adc8; font-size: 16px; cursor: pointer; }
   #card-close:hover, #card-close:focus-visible { color: #cdd6f4; }
-  #mute { position: absolute; top: 8px; right: 8px; padding: 2px 6px; border: 1px solid #45475a; border-radius: 4px; background: #11111b; font-size: 14px; cursor: pointer; }
-  #mute:hover, #mute:focus-visible { border-color: #a6adc8; }
+  #mute, #theme { position: absolute; top: 8px; right: 8px; padding: 2px 6px; border: 1px solid #45475a; border-radius: 4px; background: #11111b; color: #cdd6f4; font: 13px "Malgun Gothic", sans-serif; cursor: pointer; }
+  #theme { right: 52px; }
+  #mute:hover, #mute:focus-visible, #theme:hover, #theme:focus-visible { border-color: #a6adc8; }
 </style>
 </head>
 <body>
 <canvas id="office" aria-label="에이전트 사무실"></canvas>
 <ul id="roster" aria-live="polite"></ul>
 <button id="mute" aria-label="알림 소리 끄기" aria-pressed="false" title="알림 소리 켜기/끄기">🔔</button>
+<button id="theme" title="사무실 테마 바꾸기">주간</button>
 <div id="card" role="dialog" aria-label="캐릭터 정보" hidden>
   <button id="card-close" aria-label="닫기">×</button>
   <div id="card-body"></div>

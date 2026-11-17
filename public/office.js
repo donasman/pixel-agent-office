@@ -1,10 +1,13 @@
 // Office state from Claude Code hook events, plus the pixel drawing.
 // Everyone sits at a fixed desk asleep; a subagent starting wakes a staff member, finishing puts them back to sleep
 // and sends a report flying to the boss. reduce() and hit() are plain logic checked by office.test.js; step() draws.
+// The art (rooms, people, bubbles, screens) comes from the pixel-art design via tools/import-design.js.
 (function () {
   const W = 192, H = 144; // logical pixels, scaled up by an integer factor so pixels stay crisp
-  const DESKS = [{ x: 80, y: 40, w: 34 }]; // desk 0 is the boss's (wider: room for the report pile), 1..8 are staff desks
-  for (const y of [78, 112]) for (let i = 0; i < 4; i++) DESKS.push({ x: 14 + i * 46, y, w: 24 });
+  // The design's layout: a desk is its partition's top-left; desk 0 is the boss's, 1..8 are staff desks.
+  const DESKS = [{ x: 73, y: 37, w: 46 }, ...[77, 117].flatMap(y => [7, 53, 99, 145].map(x => ({ x, y, w: 34 })))];
+  const SPOTS = [[134, 28], [40, 28]]; // where temps stand when every desk is taken
+  const PILE = { x: 108, y: 42 }; // the boss's in-tray
 
   const TOOL_STATUS = {
     Edit: 'typing', Write: 'typing', MultiEdit: 'typing', NotebookEdit: 'typing',
@@ -18,21 +21,21 @@
   };
   const TEST_CMD = /\b(npm|pnpm|yarn|bun)\b[^|&;]*\btest\b|\b(pytest|jest|vitest|mocha)\b|\b(cargo|go|dotnet|mvn|gradle|deno)\s+test\b/;
   const COMMIT_CMD = /\bgit\s+commit\b/;
-  const OUTFITS = { opus: '#313244', sonnet: '#d97757', haiku: '#a6e3a1', fable: '#8839ef' }; // boss shirt per model
-  const BLACKOUT_KO = { rate_limit: '한도 초과', overloaded: '과부하' };
+  // clothing colours from the design (the roster's dots): the boss per model, then staff desks 1..8, then temps
+  const OUTFITS = { sonnet: '#d97757', opus: '#3a3d52', haiku: '#7cc47a', fable: '#7c4dcf' };
+  const SHIRTS = ['#e8ecf4', '#f0c9c4', '#5b6078', '#8aad6a', '#2f3e5c', '#d9a441', '#7a5c46', '#a3382f'];
+  const TEMP_SHIRT = '#34548a';
   const PAPER_MS = 1200;
   const EFFECT_MS = { paper: PAPER_MS, confetti: 2500, clap: 1500, sparkle: 1000 };
-  const SHIRTS = ['#40a02b', '#1e66f5', '#df8e1d', '#8839ef', '#179299', '#e64553', '#04a5e5', '#ea76cb'];
-  const HAIRS = ['#4c3a2e', '#1e1e2e', '#a0522d', '#d9b26f', '#6c6f85'];
   const CONFETTI = ['#f38ba8', '#f9e2af', '#a6e3a1', '#89b4fa', '#cba6f7', '#fab387'];
-  const FONT = '4px "Malgun Gothic", sans-serif';
+  const INK = '#22222c', PAPER = '#fbfbf8', HOT = '#f9e2af', RED = '#e64553'; // the design's bubble colours
 
   function newChar(id, kind, desk, n) {
     return {
       id, kind, desk, n, label: kind === 'boss' ? 'Claude' : '', task: '', status: 'sleeping', tool: null,
       busy: false, jobs: 0, history: [], since: 0, wokeAt: 0, petAt: 0,
       say: null, oopsAt: 0, failStreak: 0, lastReport: '', handback: '', model: null,
-      color: kind === 'boss' ? '#d97757' : SHIRTS[n % SHIRTS.length],
+      color: kind === 'boss' ? OUTFITS.sonnet : kind === 'temp' ? TEMP_SHIRT : SHIRTS[(desk - 1) % SHIRTS.length],
     };
   }
 
@@ -41,16 +44,14 @@
     for (let i = 1; i < DESKS.length; i++) chars['desk' + i] = newChar('desk' + i, 'staff', i, i);
     return {
       chars, who: {}, bossSession: null, pendingTasks: [], knownTasks: {}, doneTools: new Set(), gone: new Map(),
-      seq: DESKS.length, lights: null, cleaning: 0, effects: [], reports: 0,
+      seq: DESKS.length, temps: 0, lights: null, cleaning: 0, effects: [], reports: 0,
     };
   }
 
   // A report (SubagentHandback) can arrive after its SubagentStop: file it with whoever wrote it.
   function lateReport(s, charId, msg) {
-    const c = s.chars[charId], boss = s.chars.boss;
-    if (!msg || !c || c.lastReport !== '완료') return s;
-    c.lastReport = firstLine(msg);
-    if (boss.say?.text === '보고: 완료') boss.say.text = '보고: ' + c.lastReport;
+    const c = s.chars[charId];
+    if (msg && c && c.lastReport === '완료') c.lastReport = firstLine(msg);
     return s;
   }
 
@@ -82,13 +83,13 @@
     if (m) Object.assign(s.chars.boss, { model: m, color: OUTFITS[m] });
   }
 
-  // First meaningful line of a subagent's final message (headings skipped, markdown stripped), short enough for a bubble.
+  // First meaningful line of a subagent's final message (headings skipped, markdown stripped), for the card.
   function firstLine(msg) {
     const lines = String(msg || '').split('\n').map(l => l.trim()).filter(Boolean);
     const pick = lines.find(l => !l.startsWith('#')) || lines[0] || '';
     // strip emphasis and line markers only: a lone * is content (*.md)
     const line = pick.replace(/\*\*|__|`/g, '').replace(/^(#+|>|[-*])\s+/, '').replace(/\s+/g, ' ').trim() || '완료';
-    return line.length > 24 ? line.slice(0, 23) + '…' : line;
+    return line.length > 40 ? line.slice(0, 39) + '…' : line;
   }
 
   // The character an event belongs to. A new subagent or teammate wakes up a sleeping staff member.
@@ -106,7 +107,7 @@
     const label = e.agent_type || 'teammate';
     const free = Object.values(s.chars).filter(c => c.kind === 'staff' && !c.busy);
     let c = free.find(f => f.label === label) || free[0]; // the same kind of agent gets its old desk back
-    if (!c) { const n = ++s.seq; c = s.chars['temp' + n] = newChar('temp' + n, 'temp', -1, n); } // office full: a temp stands in
+    if (!c) { const n = ++s.seq; c = s.chars['temp' + n] = newChar('temp' + n, 'temp', -1, s.temps++); } // office full: a temp stands in
     Object.assign(c, { busy: true, label, task: '', tool: null, history: [], handback: '', since: now });
     c.jobs++;
     s.who[id] = c.id;
@@ -118,7 +119,10 @@
     c.status = status;
   }
 
-  function say(c, text, now, ms = 2000, delay = 0) { c.say = { text, from: now + delay, until: now + delay + ms }; }
+  // A speech bubble: pixel-font text (ASCII only: the font has no Hangul) or an icon.
+  function say(c, text, now, { ms = 2000, delay = 0, icon = null, ink = INK } = {}) {
+    c.say = { text, icon, ink, from: now + delay, until: now + delay + ms };
+  }
 
   function reduce(s, e, now = Date.now()) {
     const handback = e.tool_name === 'SubagentHandback' ? e.tool_input?.message : undefined;
@@ -148,7 +152,7 @@
         c.tool = null;
         c.failStreak = 0;
         if (TEST_CMD.test(cmd)) s.effects.push({ type: 'clap', at: now });
-        if (COMMIT_CMD.test(cmd)) { s.effects.push({ type: 'confetti', at: now }); say(c, '커밋 완료!', now); }
+        if (COMMIT_CMD.test(cmd)) { s.effects.push({ type: 'confetti', at: now }); say(c, 'COMMIT!', now); }
         break;
       case 'PostToolUseFailure':
         markDone(s, e.tool_use_id);
@@ -157,7 +161,7 @@
         if (e.is_interrupt) break; // the user pressed Esc: not the agent's mistake
         c.oopsAt = now;
         c.failStreak++;
-        say(c, TEST_CMD.test(cmd) ? '테스트 실패… 휴' : '앗!', now);
+        if (TEST_CMD.test(cmd)) say(c, 'FAIL', now, { ink: RED }); else say(c, 'OOPS', now);
         break;
       case 'Notification':
         if (e.notification_type === 'permission_prompt' || /permission/i.test(e.message || '')) wake(c, 'waiting', now);
@@ -165,7 +169,7 @@
         break;
       case 'Stop': c.status = 'sleeping'; c.tool = null; break;
       case 'StopFailure': s.lights = { reason: e.error || 'unknown' }; c.status = 'sleeping'; c.tool = null; break;
-      case 'PreCompact': s.cleaning = now; say(s.chars.boss, '정리 중…', now, 120000); break;
+      case 'PreCompact': s.cleaning = now; say(s.chars.boss, 'TIDY', now, { ms: 120000 }); break;
       case 'PostCompact':
         s.cleaning = 0;
         s.reports = 0; // the report pile gets filed away
@@ -180,19 +184,20 @@
         s.gone.set(e.agent_id, c.id);
         if (s.gone.size > 200) s.gone.delete(s.gone.keys().next().value);
         if (c.kind === 'temp') delete s.chars[c.id];
-        s.effects.push({ type: 'paper', at: now, x: from.x, y: from.y + 2 });
+        s.effects.push({ type: 'paper', at: now, x: from.x + 6, y: from.y + 8 });
         s.reports++;
-        say(s.chars.boss, '보고: ' + report, now, 4000, PAPER_MS); // boss reads it once the paper lands
+        say(s.chars.boss, '', now, { ms: 3000, delay: PAPER_MS, icon: 'doc' }); // boss reads it once the paper lands
         break;
       }
     }
     return s;
   }
 
+  // Top-left of a person's sprite: 16x28 seated cells sit at (desk.x+17, desk.y-15); temps stand.
   function seat(c) {
-    if (c.desk < 0) return { x: 30 + ((c.n * 13) % 130), y: 56 };
+    if (c.desk < 0) { const [x, y] = SPOTS[c.n % SPOTS.length]; return { x: x - 6 * Math.floor(c.n / SPOTS.length), y, standing: true }; }
     const d = DESKS[c.desk];
-    return { x: d.x + 13, y: d.y - 10 }; // behind the desk, right of the monitor
+    return { x: d.x + 17, y: d.y - 15 };
   }
 
   let view = { S: 1, ox: 0, oy: 0, dpr: 1 }; // last frame's scale/offset, to map clicks back to office pixels
@@ -202,122 +207,117 @@
     const x = (cx * view.dpr - view.ox) / view.S, y = (cy * view.dpr - view.oy) / view.S;
     return Object.values(s.chars).find(c => {
       const p = seat(c), d = DESKS[c.desk];
-      const r = d ? { x: d.x, y: p.y, w: d.w, h: d.y + 10 - p.y } : { x: p.x, y: p.y, w: 8, h: 12 };
+      const r = d ? { x: d.x, y: d.y - 9, w: d.w, h: 28 } : { x: p.x + 4, y: p.y, w: 16, h: 38 };
       return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
     }) || null;
   }
 
+  // ---- art ----
+
+  let art = null, imgs = null, theme = 'day';
+  function useArt(a, images) { art = a; imgs = images; }
+  function setTheme(name) { if (art?.themes[name]) theme = name; return theme; }
+  const themes = () => (art ? Object.keys(art.themes) : []);
+
+  // 3x5 pixel font. Letters the design spelled on its nameplates come from art.json; the rest are drawn to match.
+  const FONT = {
+    A: '010101111101101', B: '110101110101110', C: '011100100100011', D: '110101101101110', E: '111100110100111',
+    F: '111100110100100', G: '011100101101011', H: '101101111101101', I: '111010010010111', J: '001001001101010',
+    K: '101101110101101', L: '100100100100111', M: '101111111101101', N: '110101101101101', O: '010101101101010',
+    P: '110101110100100', Q: '010101101110011', R: '110101110101101', S: '011100010001110', T: '111010010010010',
+    U: '101101101101111', V: '101101101101010', W: '101101111111101', X: '101101010101101', Y: '101101010010010',
+    Z: '111001010100111', 0: '111101101101111', 1: '010110010010111', 2: '110001010100111', 3: '110001010001110',
+    4: '101101111001001', 5: '111100110001110', 6: '011100110101010', 7: '111001010010010', 8: '010101010101010',
+    9: '010101011001110', '!': '010010010000010', '?': '110001010000010', '.': '000000000000010', '-': '000000111000000',
+    ':': '000010000010000', '/': '001001010100100', ' ': '000000000000000',
+  };
+  const glyph = ch => (art?.glyphs[ch] ? art.glyphs[ch].join('') : FONT[ch] || FONT['?']);
+  const textWidth = text => Math.max(0, text.length * 4 - 1);
+  function text(R, str, x, y, color) {
+    [...str].forEach((ch, i) => { const g = glyph(ch); for (let k = 0; k < 15; k++) if (g[k] === '1') R(x + i * 4 + (k % 3), y + ((k / 3) | 0), 1, 1, color); });
+  }
+  // what fits a 30px nameplate: the agent type's first word, letters and digits, 7 at most
+  const plateText = label => (label === 'teammate' ? 'TEAM' : String(label).split(/[-_\s]/)[0].toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7));
+
   // ---- drawing ----
 
+  const POSE = { idle: 0, typeA: 1, typeB: 2, read: 3, raise: 4, sleep: 5 };
+  const SCREEN_FOR = { typing: 'edit', reading: 'read', running: 'run', delegating: 'delegate', waiting: 'ask', thinking: 'think', working: 'think' };
+  const ICON_FOR = { typing: 'edit', reading: 'read', running: 'run', delegating: 'delegate', waiting: 'ask', thinking: 'think', working: 'think' };
   const plus = (R, x, y, color) => { R(x + 1, y, 1, 3, color); R(x, y + 1, 3, 1, color); };
 
-  function drawDesk(R, d, i, owner, t) {
-    const f = Math.floor(t / 200) % 4;
-    R(d.x, d.y, d.w, 4, i ? '#a47148' : '#7f5539');
-    R(d.x, d.y + 4, d.w, 6, i ? '#8b5e34' : '#6f4518');
-    R(d.x + 1, d.y - 8, 10, 7, '#313244'); // monitor frame
-    R(d.x + 5, d.y - 1, 2, 1, '#313244');
-    const sx = d.x + 2, sy = d.y - 7, scr = c => R(sx, sy, 8, 5, c);
-    switch (owner && owner.status) {
-      case 'typing': scr('#1e1e2e'); for (let k = 0; k < 3; k++) R(sx + 1, sy + 1 + k, ((k * 3 + f) % 6) + 1, 1, '#a6e3a1'); break;
-      case 'reading': scr('#eff1f5'); for (let k = 0; k < 3; k++) R(sx + 1, sy + 1 + k, 6 - ((k + f) % 2) * 2, 1, '#9ca0b0'); break;
-      case 'running': scr('#11111b'); R(sx + 1, sy + 1, 4, 1, '#a6e3a1'); if (f % 2) R(sx + 1 + f, sy + 3, 1, 1, '#a6e3a1'); break;
-      case 'delegating': scr('#89b4fa'); R(sx + 2, sy + 1, 4, 3, '#eff1f5'); break;
-      case 'waiting': scr(f % 2 ? '#f9e2af' : '#fab387'); break;
-      case 'thinking': case 'working': scr('#313244'); R(sx + 1 + ((f * 2) % 6), sy + 2, 1, 1, '#cdd6f4'); break;
-      default: scr('#11111b'); // asleep: screen off
+  function poseOf(c, t) {
+    switch (c.status) {
+      case 'sleeping': return POSE.sleep;
+      case 'typing': case 'running': return Math.floor(t / 220) % 2 ? POSE.typeB : POSE.typeA;
+      case 'reading': return POSE.read;
+      case 'waiting': return POSE.raise;
+      default: return POSE.idle;
     }
   }
 
-  function drawChar(R, c, t, now, clap) {
-    const p = seat(c), sleeping = c.status === 'sleeping', f = Math.floor(t / 180) % 2;
-    const hop = now - c.wokeAt < 300 || now - c.petAt < 300 || (clap && Math.floor(t / 150) % 2) ? -2 : 0;
-    const x = p.x, y = p.y + (sleeping ? 3 : 0) + hop; // asleep: head down on the desk
-    const skin = '#f5c9a6', eye = '#1e1e2e';
-    const arm = (ax, ay, len) => { R(ax, ay, 1, len - 1, c.color); R(ax, ay + len - 1, 1, 1, skin); };
-    R(x + 1, y, 6, 2, HAIRS[c.n % HAIRS.length]);
-    R(x + 1, y + 2, 6, 3, skin);
-    if (sleeping) { R(x + 1, y + 3, 2, 1, eye); R(x + 5, y + 3, 2, 1, eye); }
-    else if ((t + c.n * 700) % 3200 > 150) { R(x + 2, y + 3, 1, 1, eye); R(x + 5, y + 3, 1, 1, eye); } // blink
-    R(x + 1, y + 5, 6, 4, c.color);
-    if (c.kind === 'boss') {
-      if (c.model === 'opus') { R(x + 3, y + 5, 2, 1, '#eff1f5'); R(x + 3, y + 6, 2, 2, '#d20f39'); } // suit: collar + red tie
-      else if (c.model === 'haiku') { R(x + 1, y - 1, 6, 2, '#1e66f5'); R(x + 6, y + 1, 2, 1, '#1e66f5'); } // casual: cap
-      else if (c.model === 'fable') { R(x + 3, y - 4, 2, 1, '#8839ef'); R(x + 2, y - 3, 4, 1, '#8839ef'); R(x + 1, y - 2, 6, 2, '#8839ef'); R(x + 3, y - 2, 1, 1, '#f9e2af'); } // wizard hat
-      else R(x + 3, y + 5, 2, 3, '#1e1e2e'); // tie
-    }
-    if (sleeping) { R(x, y + 6, 8, 2, c.color); R(x + 3, y + 6, 2, 1, skin); } // arms folded on the desk
-    else if (c.status === 'typing') { arm(x, y + 5 + f, 3); arm(x + 7, y + 6 - f, 3); }
-    else if (c.status === 'reading') { arm(x, y + 6, 3); arm(x + 7, y + 6, 3); R(x + 1, y + 6, 6, 3, '#eff1f5'); R(x + 2, y + 7, 4, 1, '#9ca0b0'); }
-    else if (c.status === 'waiting') { arm(x, y + 5, 4); R(x + 7, y + 1, 1, 4, c.color); R(x + 7, y, 1, 1, skin); }
-    else { arm(x, y + 5, 4); arm(x + 7, y + 5, 4); }
-    R(x + 2, y + 9, 1, 3, '#45475a');
-    R(x + 5, y + 9, 1, 3, '#45475a');
-    if (now - c.oopsAt < 1500) { // sweat drops
-      const off = Math.floor((now - c.oopsAt) / 120) % 4;
-      R(x - 1, y + 1 + off, 1, 2, '#89dceb');
-      R(x + 8, y + off, 1, 2, '#89dceb');
-    }
+  function rowOf(c) {
+    const rows = art.people.rows;
+    if (c.kind === 'boss') return rows[c.model] ?? rows.boss;
+    return rows.staff[(c.desk - 1) % rows.staff.length];
   }
 
-  function bubble(ctx, R, x, y, txt, hot) {
-    ctx.font = FONT;
-    ctx.textAlign = 'left';
-    const w = Math.ceil(ctx.measureText(txt).width) + 3, by = y - 9;
-    const bx = Math.max(2, Math.min(W - w - 2, Math.round(x + 4 - w / 2)));
-    R(bx, by - 1, w, 8, '#1e1e2e'); R(bx - 1, by, w + 2, 6, '#1e1e2e');
-    R(bx, by, w, 6, hot ? '#f9e2af' : '#eff1f5');
-    R(x + 3, by + 7, 2, 1, '#1e1e2e');
-    ctx.fillStyle = '#1e1e2e';
-    ctx.fillText(txt, bx + 1.5, by + 3.3);
+  // A bubble the design's way: rounded 1px outline, white (yellow when it needs you), a 2px tail under the middle.
+  function textBubble(R, str, cx, bottom, { ink = INK, hot = false } = {}) {
+    const w = textWidth(str) + 4, h = 10, x = Math.round(cx - Math.floor(w / 2)), y = bottom - h + 1;
+    R(x + 1, y, w - 2, 1, INK); R(x + 1, y + 8, w - 2, 1, INK); R(x, y + 1, 1, 7, INK); R(x + w - 1, y + 1, 1, 7, INK);
+    R(x + 1, y + 1, w - 2, 7, hot ? HOT : PAPER);
+    R(x + Math.floor(w / 2) - 1, y + 9, 2, 1, INK);
+    text(R, str, x + 2, y + 2, ink);
   }
 
-  function zzz(ctx, c, x, y, t) {
-    ctx.lineWidth = 0.5;
-    ctx.strokeStyle = '#1e1e2e';
-    ctx.fillStyle = '#eff1f5';
-    ctx.textAlign = 'left';
-    for (let k = 0; k < 3; k++) {
-      const ph = (t / 2400 + k / 3 + c.n * 0.13) % 1; // each z drifts up and fades
+  function iconBubble(ctx, R, name, cx, bottom) {
+    if (name === 'doc') { // a report: a little page with lines
+      textBubble(R, '  ', cx, bottom);
+      const x = Math.round(cx) - 2, y = bottom - 7;
+      R(x, y, 5, 5, '#4c4f69'); R(x + 1, y + 1, 3, 3, PAPER); R(x + 1, y + 2, 3, 1, '#9ca0b0');
+      return;
+    }
+    const b = art.bubbles.items[name];
+    if (b) ctx.drawImage(imgs.bubbles, b.x, b.y, b.w, b.h, Math.round(cx - Math.floor(b.w / 2)), bottom - b.h + 1, b.w, b.h);
+  }
+
+  function zzz(ctx, R, p, t, n) {
+    const Z = ['1111', '0010', '0100', '1111'], z = ['111', '010', '111'];
+    for (const [k, g, dx, dy] of [[0, Z, 17, 4], [1, z, 13, 9]]) {
+      const ph = (t / 2400 + k * 0.5 + n * 0.13) % 1; // each drifts up and fades
       ctx.globalAlpha = 1 - ph;
-      ctx.font = `${(3 + ph * 2).toFixed(1)}px sans-serif`;
-      ctx.strokeText('z', x + 6 + ph * 5, y + 2 - ph * 9);
-      ctx.fillText('z', x + 6 + ph * 5, y + 2 - ph * 9);
+      const x = p.x + dx + Math.round(ph * 3), y = p.y + dy - Math.round(ph * 8);
+      g.forEach((row, j) => [...row].forEach((v, i) => { if (v === '1') R(x + i, y + j, 1, 1, i === row.length - 1 && j === 0 ? '#f9f8f3' : '#f3ede1'); }));
     }
     ctx.globalAlpha = 1;
   }
 
   function heart(R, x, y) {
-    const red = '#e64553';
-    R(x, y, 2, 1, red); R(x + 3, y, 2, 1, red); R(x, y + 1, 5, 1, red); R(x + 1, y + 2, 3, 1, red); R(x + 2, y + 3, 1, 1, red);
+    R(x, y, 2, 1, RED); R(x + 3, y, 2, 1, RED); R(x, y + 1, 5, 1, RED); R(x + 1, y + 2, 3, 1, RED); R(x + 2, y + 3, 1, 1, RED);
   }
 
   function drawOverlay(ctx, R, c, t, now, clap) {
-    const { x, y } = seat(c);
-    if (now - c.petAt < 1000) heart(R, x + 8, y - 2 - Math.floor((now - c.petAt) / 150));
-    if (clap) return bubble(ctx, R, x, y, '짝짝!', false);
-    if (c.say && now >= c.say.from && now < c.say.until) return bubble(ctx, R, x, y, c.say.text, true);
-    if (c.status === 'sleeping') return zzz(ctx, c, x, y, t);
-    const txt = now - c.wokeAt < 900 ? '!'
-      : c.status === 'thinking' ? '.'.repeat((Math.floor(t / 400) % 3) + 1)
-      : c.status === 'waiting' ? '?' : c.tool;
-    if (txt) bubble(ctx, R, x, y, txt, txt === '!' || txt === '?');
-  }
-
-  function smoke(ctx, R, d, t) {
-    for (let k = 0; k < 3; k++) {
-      const ph = (t / 1500 + k / 3) % 1;
-      ctx.globalAlpha = 1 - ph;
-      R(Math.round(d.x + 4 + Math.sin(ph * 6 + k) * 2), Math.round(d.y - 10 - ph * 12), 3, 3, '#9399b2');
+    const p = seat(c), cx = p.x + (p.standing ? 12 : 8), bottom = p.y + (p.standing ? 2 : 4);
+    if (now - c.petAt < 1000) heart(R, cx + 5, bottom - 2 - Math.floor((now - c.petAt) / 150));
+    if (now - c.oopsAt < 1500) { // sweat drops
+      const off = Math.floor((now - c.oopsAt) / 120) % 4;
+      R(cx - 7, bottom + 5 + off, 1, 2, '#89dceb');
+      R(cx + 6, bottom + 4 + off, 1, 2, '#89dceb');
     }
-    ctx.globalAlpha = 1;
+    if (clap) return textBubble(R, 'YAY!', cx, bottom);
+    if (c.say && now >= c.say.from && now < c.say.until) {
+      return c.say.icon ? iconBubble(ctx, R, c.say.icon, cx, bottom) : textBubble(R, c.say.text, cx, bottom, { ink: c.say.ink });
+    }
+    if (c.status === 'sleeping') return p.standing ? null : zzz(ctx, R, p, t, c.n);
+    iconBubble(ctx, R, now - c.wokeAt < 900 ? 'wake' : ICON_FOR[c.status], cx, bottom);
   }
 
   function drawEffect(R, f, age, t) {
-    if (f.type === 'paper') { // report flying in an arc to the boss's pile
-      const p = Math.min(1, age / PAPER_MS), d = DESKS[0], tx = d.x + 25, ty = d.y - 8;
-      const x = Math.round(f.x + (tx - f.x) * p), y = Math.round(f.y + (ty - f.y) * p - Math.sin(Math.PI * p) * 18);
-      R(x, y, 7, 8, '#1e1e2e'); R(x + 1, y + 1, 5, 6, '#eff1f5'); R(x + 2, y + 2, 3, 1, '#9ca0b0'); R(x + 2, y + 4, 3, 1, '#9ca0b0');
+    if (f.type === 'paper') { // a report flying in an arc to the boss's in-tray
+      const p = Math.min(1, age / PAPER_MS);
+      const x = Math.round(f.x + (PILE.x - f.x) * p), y = Math.round(f.y + (PILE.y - 6 - f.y) * p - Math.sin(Math.PI * p) * 18);
+      R(x, y, 7, 8, '#4c4f69'); R(x + 1, y + 1, 5, 6, PAPER); R(x + 2, y + 2, 3, 1, '#9ca0b0'); R(x + 2, y + 4, 3, 1, '#9ca0b0');
     } else if (f.type === 'confetti') {
       for (let i = 0; i < 48; i++) {
         const x = (i * 37 + Math.sin(age / 300 + i) * 4 + W) % W, y = -4 + (age / 1000) * (50 + ((i * 13) % 50)) - (i % 7) * 6;
@@ -325,7 +325,7 @@
       }
     } else if (f.type === 'sparkle') {
       const d = DESKS[0];
-      for (let k = 0; k < 4; k++) if ((Math.floor(t / 120) + k) % 2) plus(R, d.x + 2 + k * 8, d.y - 14 + (k % 2) * 6, '#f9e2af');
+      for (let k = 0; k < 5; k++) if ((Math.floor(t / 120) + k) % 2) plus(R, d.x + 4 + k * 9, d.y - 4 + (k % 2) * 8, HOT);
     }
   }
 
@@ -339,58 +339,63 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#181825';
     ctx.fillRect(0, 0, cw, ch);
+    if (!art || !imgs) return; // art still loading
     ctx.setTransform(S, 0, 0, S, view.ox, view.oy);
-    ctx.textBaseline = 'middle';
+    ctx.imageSmoothingEnabled = false;
     const R = (x, y, w, h, color) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
     s.effects = s.effects.filter(f => now - f.at < EFFECT_MS[f.type]);
     const chars = Object.values(s.chars), clap = s.effects.some(f => f.type === 'clap');
-    const cleaning = s.cleaning && now - s.cleaning < 120000;
+    const look = imgs.themes[theme], [cellW, cellH] = art.cell;
 
-    // room
-    R(0, 0, W, 28, '#45475a'); R(0, 27, W, 1, '#313244');
-    for (const wx of [44, 124]) { R(wx, 6, 26, 15, '#cdd6f4'); R(wx + 1, 7, 24, 13, '#89b4fa'); R(wx + 12, 7, 1, 13, '#cdd6f4'); R(wx + 1, 13, 24, 1, '#cdd6f4'); }
-    R(5, 7, 14, 21, '#6c4a2e'); R(6, 8, 12, 20, '#8b5a2b'); R(15, 18, 2, 2, '#f9e2af'); // door
-    R(174, 8, 11, 11, '#cdd6f4'); R(179, 9, 1, 5, '#1e1e2e'); R(179, 13, 4, 1, '#1e1e2e'); // clock
-    for (let y = 28; y < H; y += 8) for (let x = 0; x < W; x += 8) R(x, y, 8, Math.min(8, H - y), ((x >> 3) + ((y - 28) >> 3)) % 2 ? '#c9a97a' : '#bf9e6e');
-    for (const px of [2, 180]) { R(px + 1, 118, 10, 10, '#40a02b'); R(px + 3, 114, 6, 6, '#40a02b'); R(px + 2, 128, 8, 8, '#a0522d'); } // plants
+    ctx.drawImage(look.room, 0, 0);
 
-    // people, then desks in front of them (temps stand in the open)
-    for (const c of chars) drawChar(R, c, t, now, clap);
-    DESKS.forEach((d, i) => drawDesk(R, d, i, chars.find(c => c.desk === i), t));
+    // people at their desks (in front of the partition, above the desk), temps standing in the open
+    for (const c of chars) {
+      const p = seat(c);
+      const hop = now - c.wokeAt < 300 || now - c.petAt < 300 ? -2 : clap && Math.floor(t / 150) % 2 ? -1 : 0;
+      if (p.standing) ctx.drawImage(look.standing, p.x, p.y + hop);
+      else ctx.drawImage(look.people, poseOf(c, t) * cellW, rowOf(c) * cellH, cellW, cellH, p.x, p.y + hop, cellW, cellH);
+    }
 
-    // report pile on the boss's desk (papers still in the air don't count yet)
+    // screens and nameplates
+    const blink = Math.floor(t / 400) % 2;
+    for (const c of chars) {
+      const d = DESKS[c.desk];
+      if (!d) continue;
+      const scr = c.status === 'sleeping' ? -1 : art.screens.items.indexOf(SCREEN_FOR[c.status]); // asleep: the room's screen is off
+      if (scr >= 0 && !(c.status === 'waiting' && blink)) ctx.drawImage(imgs.screens, scr * art.screens.w, 0, art.screens.w, art.screens.h, d.x + 3, d.y - 1, art.screens.w, art.screens.h);
+      if (c.kind === 'staff' && c.label) { const str = plateText(c.label); text(R, str, d.x + 2 + Math.floor((30 - textWidth(str)) / 2), d.y + 13, art.themes[theme].plateInk); }
+    }
+
+    // report pile in the boss's in-tray (papers still in the air don't count yet)
     const pile = Math.min(6, s.reports - s.effects.filter(f => f.type === 'paper').length);
-    for (let k = 0; k < pile; k++) R(DESKS[0].x + 25, DESKS[0].y - 1 - k, 7, 1, k % 2 ? '#eff1f5' : '#bcc0cc');
-    for (const c of chars) if (c.failStreak >= 3 && c.desk >= 0) smoke(ctx, R, DESKS[c.desk], t); // monitor smoking
-
-    if (cleaning) { // robot vacuum doing laps + sparkles over desks
+    for (let k = 0; k < pile; k++) R(PILE.x, PILE.y - k, 7, 1, k % 2 ? PAPER : '#bcc0cc');
+    for (const c of chars) { // a monitor smoking after three failures in a row
+      const d = DESKS[c.desk];
+      if (!d || c.failStreak < 3) continue;
+      for (let k = 0; k < 3; k++) { const ph = (t / 1500 + k / 3) % 1; ctx.globalAlpha = 1 - ph; R(Math.round(d.x + 6 + Math.sin(ph * 6 + k) * 2), Math.round(d.y - 4 - ph * 12), 3, 3, '#9399b2'); }
+      ctx.globalAlpha = 1;
+    }
+    if (s.cleaning && now - s.cleaning < 120000) { // a robot vacuum doing laps down the aisle + sparkles over desks
       const rx = Math.floor(((now - s.cleaning) / 25) % (W + 16)) - 8;
-      R(rx, 64, 9, 4, '#585b70'); R(rx + 1, 63, 7, 1, '#9399b2'); R(rx + 4, 64, 1, 1, Math.floor(t / 300) % 2 ? '#f38ba8' : '#a6e3a1');
-      DESKS.forEach((d, i) => { if ((Math.floor(t / 250) + i) % 3 === 0) plus(R, d.x + 4 + ((i * 7) % 16), d.y - 3, '#f9e2af'); });
+      R(rx, 99, 9, 4, '#585b70'); R(rx + 1, 98, 7, 1, '#9399b2'); R(rx + 4, 99, 1, 1, blink ? '#f38ba8' : '#a6e3a1');
+      DESKS.forEach((d, i) => { if ((Math.floor(t / 250) + i) % 3 === 0) plus(R, d.x + 20 + ((i * 7) % 10), d.y + 8, HOT); });
     }
     for (const f of s.effects) drawEffect(R, f, now - f.at, t);
     for (const c of chars) drawOverlay(ctx, R, c, t, now, clap);
 
-    ctx.font = FONT;
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#1e1e2e';
-    for (const c of chars) if (c.desk >= 0 && c.label) ctx.fillText(c.label.slice(0, 16), DESKS[c.desk].x + DESKS[c.desk].w / 2, DESKS[c.desk].y + 14);
-
-    if (s.lights) { // blackout: lights off + hanging sign
+    if (s.lights) { // blackout: lights off + a sign hanging from the ceiling
       ctx.fillStyle = 'rgba(17,17,27,0.7)';
       ctx.fillRect(0, 0, W, H);
-      const txt = '⚡ ' + (BLACKOUT_KO[s.lights.reason] || '서버 오류');
-      ctx.font = FONT;
-      ctx.textAlign = 'left';
-      const w = Math.ceil(ctx.measureText(txt).width) + 6, bx = Math.round(W / 2 - w / 2);
-      R(bx + 2, 0, 1, 9, '#6c6f85'); R(bx + w - 3, 0, 1, 9, '#6c6f85');
-      R(bx - 1, 8, w + 2, 10, '#1e1e2e'); R(bx, 9, w, 8, '#f9e2af');
-      ctx.fillStyle = '#1e1e2e';
-      ctx.fillText(txt, bx + 3, 13.3);
+      const str = { rate_limit: 'LIMIT', overloaded: 'OVERLOAD' }[s.lights.reason] || 'ERROR';
+      const w = textWidth(str) + 8, x = Math.round(W / 2 - w / 2);
+      R(x + 2, 0, 1, 9, '#6c6f85'); R(x + w - 3, 0, 1, 9, '#6c6f85');
+      R(x - 1, 8, w + 2, 11, INK); R(x, 9, w, 9, HOT);
+      text(R, str, x + 4, 11, INK);
     }
   }
 
-  const Office = { createState, reduce, step, hit, setModel, STATUS_KO };
+  const Office = { createState, reduce, step, hit, setModel, useArt, setTheme, themes, plateText, STATUS_KO };
   if (typeof module === 'object') module.exports = Office;
   else window.Office = Office;
 })();

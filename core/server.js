@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png' };
 const MAX_BODY = 8 * 1024 * 1024; // hook payloads can carry whole files (Write/Edit), so accept big bodies, then slim them
 const LOG_MAX = 1000; // events replayed to a page that opens late
 const CLAUDE_DIR = path.resolve(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'));

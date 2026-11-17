@@ -27,12 +27,14 @@ Then use Claude Code as usual, in any terminal or IDE. The office opens in an ap
 | Edit / Write, Read / Grep, Bash | Typing, reading papers, a terminal on the monitor |
 | A subagent finishes | Its report flies to the boss's desk; the boss reads the first line |
 | Permission prompt | A "?" bubble, a chime, and a blinking taskbar (desktop app) |
-| A tool fails | Sweat and "앗!"; three failures in a row make the monitor smoke |
+| A tool fails | Sweat and "OOPS"; three failures in a row make the monitor smoke |
 | `git commit` / tests pass | Confetti / the whole office claps |
 | Context compaction | A robot vacuum cleans up and the report pile is filed away |
 | Rate limit or overload | The lights go out |
 
-Click anyone to see their task, recent tools and work time.
+Click anyone to see their task, recent tools, work time and last report. Three office themes: day, late night and wood.
+
+The art lives in `public/art/`. It is cut out of the pixel-art design by `node tools/import-design.js` (inputs in `tools/design/`).
 
 ## How it works
 

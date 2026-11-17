@@ -62,25 +62,26 @@ at('PermissionRequest', { tool_name: 'Write', tool_input: {} }, 2000);
 assert.equal(boss.status, 'waiting');
 
 for (let i = 0; i < 3; i++) at('PostToolUseFailure', { tool_name: 'Bash', tool_input: { command: 'exit 3' }, error: 'Exit code 3', is_interrupt: false }, 3000);
-assert.deepEqual([boss.failStreak, boss.oopsAt, boss.say.text], [3, 3000, '앗!'], 'three failures: sweat + smoking monitor');
+assert.deepEqual([boss.failStreak, boss.oopsAt, boss.say.text], [3, 3000, 'OOPS'], 'three failures: sweat + smoking monitor');
 at('PostToolUse', { tool_name: 'Read', tool_input: {} }, 3100);
 assert.equal(boss.failStreak, 0, 'a success clears the streak');
 at('PostToolUseFailure', { tool_name: 'Bash', tool_input: { command: 'x' }, is_interrupt: true }, 3200);
 assert.equal(boss.failStreak, 0, 'Esc is not the agent failing');
 at('PostToolUseFailure', { tool_name: 'Bash', tool_input: { command: 'npm --prefix C:/x test' }, error: 'Exit code 1' }, 3300);
-assert.equal(boss.say.text, '테스트 실패… 휴');
+assert.deepEqual([boss.say.text, boss.say.ink], ['FAIL', '#e64553']);
 
 s.effects = [];
 at('PostToolUse', { tool_name: 'Bash', tool_input: { command: 'npm --prefix C:/x test' } }, 4000);
 at('PostToolUse', { tool_name: 'Bash', tool_input: { command: 'git commit -m "x"' } }, 4000);
 assert.deepEqual(s.effects.map(f => f.type), ['clap', 'confetti']);
+assert.equal(boss.say.text, 'COMMIT!');
 
 const reportsBefore = s.reports;
 ev('SubagentStart', { agent_id: 'R1', agent_type: 'Explore' });
 const r1 = chars[s.who.R1];
 Office.reduce(s, { session_id: 'S1', hook_event_name: 'SubagentStop', agent_id: 'R1', last_assistant_message: '## Result\n\n**There is 1 file** matching *.json in the working directory.' }, 5000);
-assert.equal(r1.lastReport, 'There is 1 file matchin…');
-assert.deepEqual([boss.say.text, boss.say.from, s.reports - reportsBefore], ['보고: There is 1 file matchin…', 6200, 1], 'boss reads it after the paper lands');
+assert.equal(r1.lastReport, 'There is 1 file matching *.json in the …', 'first line for the card, cut at 40');
+assert.deepEqual([boss.say.icon, boss.say.from, s.reports - reportsBefore], ['doc', 6200, 1], 'boss reads it after the paper lands');
 assert.ok(s.effects.some(f => f.type === 'paper'));
 
 at('PreCompact', { trigger: 'auto' }, 7000);
@@ -119,19 +120,19 @@ const h1 = chars[s.who.H1];
 sub('PreToolUse', 'H1', { tool_name: 'SubagentHandback', tool_use_id: 'HB1', tool_input: { message: '*.md 패턴으로 777개의 파일이 찾아졌습니다.' } });
 assert.equal(h1.tool, '보고서');
 sub('SubagentStop', 'H1');
-assert.match(h1.lastReport, /^\*\.md 패턴으로 777개의 파일이 .*…$/, 'report comes from the handback, glob kept, cut for the bubble');
-assert.equal(boss.say.text, '보고: ' + h1.lastReport);
+assert.equal(h1.lastReport, '*.md 패턴으로 777개의 파일이 찾아졌습니다.', 'report comes from the handback, glob kept');
+assert.equal(boss.say.icon, 'doc');
 
 // async: the report can land after SubagentStop, and stray late events must not wake anyone
 sub('SubagentStart', 'H2');
 const h2 = chars[s.who.H2];
 sub('SubagentStop', 'H2', {}, 9700);
-assert.equal(boss.say.text, '보고: 완료');
+assert.equal(h2.lastReport, '완료');
 const busyBefore = Object.values(chars).filter(c => c.busy).length;
 sub('PostToolUse', 'H2', { tool_name: 'Glob', tool_use_id: 'L1' }, 9701);
 assert.equal(Object.values(chars).filter(c => c.busy).length, busyBefore, 'a late event from a finished subagent wakes nobody');
 sub('PostToolUse', 'H2', { tool_name: 'SubagentHandback', tool_use_id: 'HB2', tool_input: { message: '## 결과\n테스트 3개 추가함' } }, 9702);
-assert.deepEqual(h2.kind === 'temp' ? [boss.say.text] : [h2.lastReport, boss.say.text], h2.kind === 'temp' ? ['보고: 완료'] : ['테스트 3개 추가함', '보고: 테스트 3개 추가함']);
+if (h2.kind !== 'temp') assert.equal(h2.lastReport, '테스트 3개 추가함', 'a late report still reaches the card');
 
 // the server adds the model it read from the transcript; only the boss's events change the outfit
 Office.reduce(s, { session_id: 'S2', hook_event_name: 'Stop', model: 'claude-opus-5-5' }, 9500);
@@ -139,9 +140,14 @@ assert.equal(boss.model, 'opus');
 Office.reduce(s, { session_id: 'S2', hook_event_name: 'PreToolUse', agent_id: 'B1', tool_name: 'Read', model: 'claude-haiku-5-5' }, 9501);
 assert.equal(boss.model, 'opus', "a subagent's model is not the boss's");
 
-// default view is 1:1, so office pixels == CSS pixels: boss desk is at (84,40) 24 wide
+// default view is 1:1, so office pixels == CSS pixels: the design's boss desk is at (73,37) 46 wide, desk 1 at (7,77)
 assert.equal(Office.hit(s, 96, 45).id, 'boss');
 assert.equal(Office.hit(s, 20, 80).id, 'desk1');
 assert.equal(Office.hit(s, 100, 66), null);
+
+// nameplates hold 7 letters of the 3x5 pixel font: the agent type's first word
+assert.deepEqual(['general-purpose', 'Explore', 'code-reviewer', 'teammate', 'statusline-setup'].map(Office.plateText), ['GENERAL', 'EXPLORE', 'CODE', 'TEAM', 'STATUSL']);
+// everything said in a bubble must be in the pixel font (no Hangul)
+for (const c of Object.values(chars)) if (c.say?.text) assert.match(c.say.text, /^[A-Z0-9!?.\-: /]*$/, `${c.id} says ${c.say.text}`);
 
 console.log('office reducer ok');
