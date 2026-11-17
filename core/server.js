@@ -1,6 +1,7 @@
 // Agent Office core: receives Claude Code hook events (POST /events), streams them to office pages (GET /stream, SSE)
-// and serves the office page (public/). Permission prompts can be answered from a page (POST /permission, /decide). While running it writes its port to ~/.agent-office/port: that file is how the
-// hooks find it, and no file means the hooks stay silent. One server per machine: a second start attaches to the first.
+// and serves the office page (public/). Permission prompts can be answered from a page (POST /permission, /decide).
+// While running it writes its port to ~/.agent-office/port: that file is how the hooks find it, and no file means the
+// hooks stay silent. One server per machine: a second start attaches to the first.
 const crypto = require('crypto');
 const http = require('http');
 const fs = require('fs');
@@ -13,15 +14,38 @@ const MAX_BODY = 8 * 1024 * 1024; // hook payloads can carry whole files (Write/
 const LOG_MAX = 1000; // events replayed to a page that opens late
 const CLAUDE_DIR = path.resolve(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'));
 
+const TASK_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TodoWrite']); // claude's to-do list, drawn on the whiteboard
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']); // the files a floor lists
+
+// A file as the office lists it: relative to the session's folder, else with ~ for the home folder.
+function shortPath(p, cwd) {
+  if (typeof p !== 'string' || !p) return undefined;
+  let out = p;
+  const rel = typeof cwd === 'string' ? path.relative(cwd, path.resolve(cwd, p)) : '';
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) out = rel;
+  else if (p.toLowerCase().startsWith(os.homedir().toLowerCase())) out = '~' + p.slice(os.homedir().length);
+  return out.split(path.sep).join('/').slice(-200);
+}
+
 // Keep only what the office uses: payloads also hold file contents, command output and prompts.
 function slim(e) {
   const cut = (v, n) => (typeof v === 'string' ? v.slice(0, n) : undefined);
-  const ti = e.tool_input || {}, tr = e.tool_response;
+  const id = v => (v == null ? undefined : String(v).slice(0, 20));
+  const ti = e.tool_input || {}, tr = e.tool_response, task = TASK_TOOLS.has(e.tool_name);
   return {
     hook_event_name: e.hook_event_name, session_id: e.session_id, agent_id: e.agent_id, agent_type: e.agent_type,
     source: e.source, tool_name: e.tool_name, tool_use_id: e.tool_use_id,
-    tool_input: { description: cut(ti.description, 200), command: cut(ti.command, 300), message: cut(ti.message, 400) }, // message: a subagent's report
-    tool_response: tr && typeof tr === 'object' && typeof tr.agentId === 'string' ? { agentId: tr.agentId } : undefined,
+    tool_input: {
+      description: cut(ti.description, 200), command: cut(ti.command, 300), message: cut(ti.message, 400), // message: a subagent's report
+      ...(task && {
+        subject: cut(ti.subject, 120), activeForm: cut(ti.activeForm, 120), taskId: id(ti.taskId), status: cut(ti.status, 20),
+        todos: Array.isArray(ti.todos) ? ti.todos.slice(0, 50).map(t => ({ content: cut(t?.content, 120), status: cut(t?.status, 20), activeForm: cut(t?.activeForm, 120) })) : undefined,
+      }),
+    },
+    tool_response: !tr || typeof tr !== 'object' ? undefined
+      : typeof tr.agentId === 'string' ? { agentId: tr.agentId }
+      : task && tr.task && tr.task.id != null ? { task: { id: id(tr.task.id), subject: cut(tr.task.subject, 120) } } : undefined,
+    file: e.hook_event_name === 'PostToolUse' && EDIT_TOOLS.has(e.tool_name) ? shortPath(ti.file_path ?? ti.notebook_path, e.cwd) : undefined,
     is_interrupt: e.is_interrupt, error: cut(e.error, 200), notification_type: e.notification_type, message: cut(e.message, 200),
     last_assistant_message: cut(e.last_assistant_message, 400), to_model: e.to_model, trigger: e.trigger, reason: cut(e.reason, 40),
     project: typeof e.cwd === 'string' ? path.basename(e.cwd).slice(0, 60) : undefined, // the folder's name names its floor, not the whole path
@@ -30,40 +54,51 @@ function slim(e) {
   };
 }
 
-// Hook events don't say which model the main agent runs; its transcript does. Only the main thread's assistant lines
-// count: other lines (api-request-shape, side requests) can name a different model.
-function lastAssistantModel(text) {
+// Hook events don't say which model the main agent runs or how full its context is; its transcript does. The last
+// main-thread assistant line has both (other lines, like api-request-shape or side requests, can name another model);
+// a compaction line after it gives the context left after compacting.
+function lastAssistant(text) {
   const lines = text.split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (!lines[i].includes('"type":"assistant"')) continue;
+    const l = lines[i];
+    if (!l.includes('"type":"assistant"') && !l.includes('"compactMetadata"')) continue;
     let j;
-    try { j = JSON.parse(lines[i]); } catch { continue; } // the tail's first line is usually cut
-    const m = j.message?.model;
-    if (j.type === 'assistant' && !j.isSidechain && typeof m === 'string' && m.startsWith('claude-')) return m;
+    try { j = JSON.parse(l); } catch { continue; } // the tail's first line is usually cut
+    if (j.compactMetadata && Number(j.compactMetadata.postTokens) > 0) return { used: Number(j.compactMetadata.postTokens) };
+    const m = j.message?.model, u = j.message?.usage || {};
+    if (j.type === 'assistant' && !j.isSidechain && typeof m === 'string' && m.startsWith('claude-')) {
+      const used = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'].reduce((n, k) => n + (Number(u[k]) || 0), 0);
+      return { model: m, used: used || undefined };
+    }
   }
 }
-const models = new Map(); // session_id -> model id
+const models = new Map(), readAt = new Map(); // session_id -> model id / when its transcript was last read
+const FRESH = new Set(['SessionStart', 'UserPromptSubmit', 'Stop', 'PostCompact']); // always worth a fresh read
 const inside = (file, dir) => {
   const f = path.resolve(file), d = dir + path.sep;
   return process.platform === 'win32' ? f.toLowerCase().startsWith(d.toLowerCase()) : f.startsWith(d);
 };
-function modelOf(e) {
-  if (e.agent_id || typeof e.session_id !== 'string') return undefined;
-  if (e.hook_event_name === 'PostModelSwitch' && typeof e.to_model === 'string') models.set(e.session_id, e.to_model);
-  const t = e.transcript_path;
-  if (!models.has(e.session_id) && typeof t === 'string' && t.endsWith('.jsonl') && inside(t, CLAUDE_DIR)) {
-    // shortcut: reads only the transcript's last 256 KB; if no assistant line is in there, the model shows up a turn later
+function fromTranscript(e) {
+  const sid = e.session_id;
+  if (e.agent_id || typeof sid !== 'string') return {};
+  if (e.hook_event_name === 'PostModelSwitch' && typeof e.to_model === 'string') models.set(sid, e.to_model);
+  const t = e.transcript_path, now = Date.now();
+  let context;
+  if (typeof t === 'string' && t.endsWith('.jsonl') && inside(t, CLAUDE_DIR) && (FRESH.has(e.hook_event_name) || !models.has(sid) || now - (readAt.get(sid) || 0) > 5000)) {
+    readAt.set(sid, now);
+    // shortcut: reads only the transcript's last 256 KB; if no assistant line is in there, model and context come a turn later
     try {
       const fd = fs.openSync(t, 'r');
       try {
         const size = fs.fstatSync(fd).size, len = Math.min(size, 256 * 1024), buf = Buffer.alloc(len);
         fs.readSync(fd, buf, 0, len, size - len);
-        const m = lastAssistantModel(buf.toString('utf8'));
-        if (m) models.set(e.session_id, m);
+        const a = lastAssistant(buf.toString('utf8'));
+        if (a?.model && !models.has(sid)) models.set(sid, a.model);
+        context = a?.used;
       } finally { fs.closeSync(fd); }
     } catch {} // transcript not written yet
   }
-  return models.get(e.session_id);
+  return { model: models.get(sid), context };
 }
 
 const sha1 = b => crypto.createHash('sha1').update(b).digest('hex');
@@ -163,7 +198,7 @@ async function start({
         return p ? hold(p, res) : send(res, 204);
       }
       recent.set(key, now);
-      const out = { ...slim(e), model: modelOf(e), _t: now };
+      const out = { ...slim(e), ...fromTranscript(e), _t: now };
       if (ask && clients.size) { // the office is open: wait for a page or the terminal to answer
         const id = crypto.randomUUID();
         const p = { id, key, sid: e.session_id, aid: e.agent_id, tool: e.tool_name, input: sha1(JSON.stringify(e.tool_input)), hooks: [], timer: setTimeout(() => settle(id, 'expired'), HOLD_MS) };

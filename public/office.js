@@ -45,6 +45,7 @@
     return {
       chars, who: {}, bossSession: null, pendingTasks: [], knownTasks: {}, doneTools: new Set(), gone: new Map(),
       seq: DESKS.length, temps: 0, lights: null, cleaning: 0, effects: [], reports: 0,
+      tasks: {}, files: {}, context: 0, modelId: '', // claude's to-do list, files edited, context tokens (of modelId's window)
     };
   }
 
@@ -76,6 +77,34 @@
     delete s.knownTasks[agentId];
     if (i >= 0) s.pendingTasks.splice(i, 1);
     return desc;
+  }
+
+  // shortcut: context windows from Anthropic's model table (2026-11): current models 1M, the 4.5 generation and older
+  // 200K; an unknown model counts as 1M. Update the list when a 200K model ships.
+  const windowOf = model => (/^claude-(3|(opus|sonnet|haiku)-4-([0-5]\b|2025))/.test(String(model)) ? 200000 : 1000000);
+
+  // From a successful tool call: claude's to-do list (TaskCreate / TaskUpdate, checked against claude 2.1.326; TodoWrite,
+  // which sends the whole list, in older versions), files edited.
+  function track(s, c, e, now) {
+    const ti = e.tool_input || {}, made = e.tool_response?.task;
+    if (e.tool_name === 'TaskCreate' && made?.id) s.tasks[made.id] = { subject: ti.subject || made.subject || '', status: 'pending', active: ti.activeForm || '' };
+    else if (e.tool_name === 'TaskUpdate' && ti.taskId) {
+      if (ti.status === 'deleted') delete s.tasks[ti.taskId];
+      else {
+        const t = (s.tasks[ti.taskId] ||= { subject: `#${ti.taskId}`, status: 'pending', active: '' }); // made before the office opened
+        if (ti.status) t.status = ti.status;
+        if (ti.subject) t.subject = ti.subject;
+        if (ti.activeForm) t.active = ti.activeForm;
+      }
+    } else if (e.tool_name === 'TodoWrite' && Array.isArray(ti.todos)) {
+      s.tasks = Object.fromEntries(ti.todos.map((t, i) => [String(i + 1), { subject: t.content || '', status: t.status || 'pending', active: t.activeForm || '' }]));
+    }
+    if (e.file) {
+      const f = (s.files[e.file] ||= { n: 0, by: [], at: 0 }), who = c.kind === 'boss' ? 'Claude' : c.label;
+      f.n++;
+      f.at = now;
+      if (!f.by.includes(who)) f.by.push(who);
+    }
   }
 
   function setModel(s, name) {
@@ -132,7 +161,9 @@
     c.seenAt = now; // the last sign of life, for stuckFor()
     if (handback) c.handback = handback; // interactive claude: subagents report through this tool, not their last message
     const ev = e.hook_event_name, cmd = e.tool_name === 'Bash' ? String(e.tool_input?.command || '') : '';
-    if (c.kind === 'boss' && e.model) setModel(s, e.model); // the server reads it from the transcript
+    if (c.kind === 'boss' && e.model) { setModel(s, e.model); s.modelId = e.model; } // the server reads it from the transcript
+    if (c.kind === 'boss' && e.context > 0) s.context = e.context;
+    if (ev === 'SessionStart' && e.source === 'clear') s.tasks = {}; // /clear starts claude's to-do list afresh
     if (ev === 'SessionStart' || ev === 'UserPromptSubmit' || ev === 'PreToolUse') s.lights = null; // power is back
     switch (ev) {
       case 'SessionStart': if (c.kind !== 'boss') wake(c, 'thinking', now); break;
@@ -161,6 +192,7 @@
         if (c.status !== 'sleeping') c.status = 'thinking';
         c.tool = null;
         c.failStreak = 0;
+        track(s, c, e, now);
         if (TEST_CMD.test(cmd)) s.effects.push({ type: 'clap', at: now });
         if (COMMIT_CMD.test(cmd)) { s.effects.push({ type: 'confetti', at: now }); say(c, 'COMMIT!', now); }
         break;
@@ -289,6 +321,15 @@
     const d = DESKS[c.desk];
     return { x: d.x + 17, y: d.y - 15 };
   }
+
+  // The room's whiteboard is a kanban (to do | doing | done): its columns' insides, and each theme's board and note colours.
+  const BOARD = { y: 4, h: 18, cols: [[72, 16], [89, 15], [105, 15]] };
+  const BOARD_INK = {
+    day: { bg: '#fbfbf8', notes: ['#f9e2af', '#89b4fa', '#a6e3a1'] },
+    night: { bg: '#999eb2', notes: ['#bcad90', '#6a8bc7', '#7fad86'] },
+    wood: { bg: '#eff1f5', notes: ['#f9e2af', '#89b4fa', '#a6e3a1'] },
+  };
+  const COLUMN = { pending: 0, in_progress: 1, completed: 2 };
 
   let view = { S: 1, ox: 0, oy: 0, dpr: 1 }; // last frame's scale/offset, to map clicks back to office pixels
 
@@ -421,6 +462,20 @@
     }
   }
 
+  // claude's to-do list as sticky notes, 3x3 to a column (the 9th slot becomes a "+" when there are more)
+  function drawBoard(R, tasks) {
+    const ink = BOARD_INK[theme] || BOARD_INK.day, per = [[], [], []];
+    for (const t of Object.values(tasks)) per[COLUMN[t.status] ?? 0].push(t);
+    BOARD.cols.forEach(([x0, w], k) => {
+      R(x0, BOARD.y, w, BOARD.h, ink.bg);
+      per[k].slice(0, 9).forEach((t, i) => {
+        const x = x0 + 1 + (i % 3) * 5, y = BOARD.y + 1 + Math.floor(i / 3) * 5;
+        if (i === 8 && per[k].length > 9) return plus(R, x + 1, y + 1, INK);
+        R(x, y, 4, 4, ink.notes[k]);
+      });
+    });
+  }
+
   function step(canvas, s, t) {
     const now = Date.now(), dpr = window.devicePixelRatio || 1;
     const cw = Math.round(canvas.clientWidth * dpr), ch = Math.round(canvas.clientHeight * dpr);
@@ -440,6 +495,7 @@
     const look = imgs.themes[theme], [cellW, cellH] = art.cell;
 
     ctx.drawImage(look.room, 0, 0);
+    if (Object.keys(s.tasks).length) drawBoard(R, s.tasks);
 
     // people at their desks (in front of the partition, above the desk), temps standing in the open
     for (const c of chars) {
@@ -487,7 +543,7 @@
     }
   }
 
-  const Office = { createState, reduce, createBuilding, route, prune, floorStatus, stuckFor, STUCK_MS, step, hit, setModel, useArt, setTheme, themes, plateText, STATUS_KO };
+  const Office = { createState, reduce, createBuilding, route, prune, floorStatus, stuckFor, STUCK_MS, windowOf, step, hit, setModel, useArt, setTheme, themes, plateText, STATUS_KO };
   if (typeof module === 'object') module.exports = Office;
   else window.Office = Office;
 })();

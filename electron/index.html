@@ -8,12 +8,26 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1e2e; }
   body { display: flex; }
-  #term { flex: 1 1 55%; min-width: 0; padding: 6px; box-sizing: border-box; }
+  #left { flex: 1 1 55%; min-width: 0; display: flex; flex-direction: column; }
+  #tabs { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid #313244; overflow-x: auto; }
+  #tabs .tab { flex: none; display: flex; border: 1px solid #45475a; border-radius: 4px; background: #11111b; }
+  #tabs .tab[aria-selected="true"] { border-color: #f9e2af; }
+  #tabs button { padding: 3px 8px; border: 0; background: none; color: #a6adc8; font: 13px "Malgun Gothic", sans-serif; cursor: pointer; white-space: nowrap; }
+  #tabs .tab[aria-selected="true"] .name { color: #cdd6f4; }
+  #tabs .close { padding: 3px 6px 3px 0; }
+  #tabs .add { flex: none; border: 1px dashed #45475a; border-radius: 4px; }
+  #tabs button:hover, #tabs button:focus-visible { color: #cdd6f4; }
+  #terms { flex: 1; min-height: 0; }
+  .term { height: 100%; padding: 6px; box-sizing: border-box; }
+  .term[hidden] { display: none; }
   #office { flex: 1 1 45%; min-width: 0; border: 0; background: #181825; }
 </style>
 </head>
 <body>
-<div id="term"></div>
+<div id="left">
+  <div id="tabs" role="tablist" aria-label="claude 세션"></div>
+  <div id="terms"></div>
+</div>
 <iframe id="office" title="에이전트 사무실"></iframe>
 <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
 <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>

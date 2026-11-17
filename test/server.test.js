@@ -117,6 +117,26 @@ const watch = port => {
   assert.equal(outDir.model, undefined, 'files outside the claude dir are not read');
   assert.equal(inDir.transcript_path, undefined, 'paths are not streamed');
 
+  // --- what the to-do board, the file list and the context gauge need ---
+  const board = watch(a.port);
+  await tick(100);
+  const proj = path.join(tmp, 'my-project');
+  await post(a.port, { hook_event_name: 'PostToolUse', session_id: 'K', cwd: proj, tool_name: 'TaskCreate', tool_use_id: 'K1', tool_input: { subject: 'Write tests', description: 'details', activeForm: 'Writing tests' }, tool_response: { task: { id: 1, subject: 'Write tests' } } });
+  await post(a.port, { hook_event_name: 'PostToolUse', session_id: 'K', cwd: proj, tool_name: 'Edit', tool_use_id: 'K2', tool_input: { file_path: path.join(proj, 'src', 'a.js'), old_string: 'x', new_string: 'y' } });
+  await post(a.port, { hook_event_name: 'PostToolUse', session_id: 'K', cwd: proj, tool_name: 'Write', tool_use_id: 'K3', tool_input: { file_path: path.join(os.homedir(), 'notes.txt'), content: 'secret' } });
+  fs.appendFileSync(transcript, '{"type":"assistant","message":{"model":"claude-haiku-5-5","usage":{"input_tokens":10,"cache_creation_input_tokens":200,"cache_read_input_tokens":3000,"output_tokens":40}}}\n');
+  await post(a.port, { hook_event_name: 'Stop', session_id: 'S2', transcript_path: transcript, stop_hook_active: false });
+  fs.appendFileSync(transcript, '{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"auto","preTokens":3250,"postTokens":900}}\n');
+  await post(a.port, { hook_event_name: 'PostCompact', session_id: 'S2', transcript_path: transcript, trigger: 'auto' });
+  await tick(150);
+  const [made, edited, outside2, stop, compact] = board.got.slice(-5);
+  board.close();
+  assert.deepEqual([made.tool_input.subject, made.tool_input.activeForm, made.tool_response.task], ['Write tests', 'Writing tests', { id: '1', subject: 'Write tests' }], 'the to-do list');
+  assert.deepEqual([edited.file, edited.tool_input.new_string], ['src/a.js', undefined], 'a file edited: its path in the project, not its contents');
+  assert.equal(outside2.file, '~/notes.txt', 'outside the project: from the home folder');
+  assert.deepEqual([stop.context, stop.model], [3250, 'claude-haiku-5-5'], 'context = everything the last answer was given and wrote');
+  assert.equal(compact.context, 900, 'after compacting, what is left');
+
   // --- answering a permission prompt from the office ---
   const origin = `http://127.0.0.1:${a.port}`;
   const ask = (command, extra = {}) => request(a.port, { method: 'POST', path: '/permission', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hook_event_name: 'PermissionRequest', session_id: 'P', tool_name: 'Bash', tool_input: { command }, ...extra }) });

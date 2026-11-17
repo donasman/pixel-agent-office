@@ -35,6 +35,13 @@ Then use Claude Code as usual, in any terminal or IDE. The office opens in an ap
 
 Click anyone to see their task, recent tools, work time and last report. Three office themes: day, late night and wood.
 
+### Under the office
+
+- **직원**: who is working on what.
+- **파일**: the files edited this session (Edit/Write), newest first, with who edited them and how often. Changes made by commands (Bash) aren't listed.
+- **컨텍스트**: how full the main agent's context is, from its transcript (current models have a 1M-token window).
+- **할 일**: claude's to-do list (TaskCreate / TaskUpdate), also drawn as sticky notes on the whiteboard (to do / doing / done). It shows up only while claude keeps one. Claude Code gives the current models (Opus, Sonnet and Haiku 5.5, Fable) these tools only when `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is set; older models such as Opus 4.7 have them by default.
+
 ### Answer permission prompts from the office
 
 When claude asks before running a tool, the office shows what it wants to do (`승인 요청 Claude: Bash npm install …`) with 허용 (allow) and 거부 (deny). Claude's own prompt appears in the terminal at the same time, and whichever you answer first counts. 허용 means "Yes" for this one call; for "always allow", answer in the terminal. Only the office page itself can answer, and only while it is open.
@@ -72,7 +79,7 @@ npm install
 npm start
 ```
 
-It runs your own `claude` login, so it uses your subscription as usual.
+It runs your own `claude` login, so it uses your subscription as usual. **+ 새 세션** above the terminal asks for a folder and runs another claude in a new tab; each tab is its own floor, and the office shows the floor of the tab in front. Closing a tab (×) ends its claude. `npm start -- C:\Dev\my-project` skips the first folder question.
 
 ## Uninstall
 

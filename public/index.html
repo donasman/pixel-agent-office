@@ -9,7 +9,22 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: #181825; color: #cdd6f4; font: 13px "Malgun Gothic", sans-serif; }
   body { display: flex; flex-direction: column; position: relative; }
   #office { flex: 1; min-height: 0; display: block; width: 100%; }
-  #roster { margin: 0; padding: 8px 12px; list-style: none; flex: 0 0 22%; box-sizing: border-box; overflow-y: auto; border-top: 1px solid #313244; } /* fixed height so the office doesn't jump as people come and go */
+  #panel { flex: 0 0 28%; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid #313244; } /* fixed height so the office doesn't jump as lists change */
+  #tabs { display: flex; align-items: center; gap: 4px; padding: 6px 8px 0; }
+  #tabs button { padding: 2px 8px; border: 1px solid #45475a; border-radius: 4px; background: #11111b; color: #a6adc8; font: 12px "Malgun Gothic", sans-serif; cursor: pointer; }
+  #tabs button[aria-selected="true"] { color: #cdd6f4; border-color: #f9e2af; }
+  #tabs button:hover, #tabs button:focus-visible { border-color: #a6adc8; }
+  #tabs button[hidden] { display: none; }
+  #ctx { margin-left: auto; display: flex; align-items: center; gap: 6px; color: #a6adc8; font-size: 12px; white-space: nowrap; }
+  #ctx[hidden] { display: none; }
+  #ctx .bar { width: 72px; height: 6px; border-radius: 3px; background: #313244; overflow: hidden; }
+  #ctx .fill { height: 100%; }
+  #roster { flex: 1; min-height: 0; margin: 0; padding: 6px 12px; list-style: none; overflow-y: auto; }
+  #roster .tick { display: inline-block; width: 14px; }
+  #roster .task.completed { color: #7f849c; text-decoration: line-through; }
+  #roster .task.in_progress { color: #89b4fa; }
+  #roster .file code { font: 12px Consolas, monospace; }
+  #roster .hint { color: #7f849c; font-size: 12px; white-space: normal; }
   #roster li { padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #roster .dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; outline: 1px solid #6c7086; }
   #roster .st { color: #a6adc8; }
@@ -50,7 +65,15 @@
   <button id="mute" aria-label="알림 소리 끄기" aria-pressed="false" title="알림 소리 켜기/끄기">🔔</button>
 </div>
 <canvas id="office" aria-label="에이전트 사무실"></canvas>
-<ul id="roster" aria-live="polite"></ul>
+<div id="panel">
+  <div id="tabs" role="tablist" aria-label="아래 목록">
+    <button role="tab" data-tab="people">직원</button>
+    <button role="tab" data-tab="tasks">할 일</button>
+    <button role="tab" data-tab="files">파일</button>
+    <span id="ctx" hidden></span>
+  </div>
+  <ul id="roster" aria-live="polite"></ul>
+</div>
 <div id="card" role="dialog" aria-label="캐릭터 정보" hidden>
   <button id="card-close" aria-label="닫기">×</button>
   <div id="card-body"></div>

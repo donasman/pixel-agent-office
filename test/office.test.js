@@ -239,4 +239,33 @@ for (const c of Object.values(chars)) if (c.say?.text) assert.match(c.say.text, 
   assert.equal(Object.values(f.state.chars).filter(c => c.busy).length, 0, 'and wakes nobody');
 }
 
+// --- claude's to-do list, files edited, context (tool shapes from real claude 2.1 transcripts) ---
+{
+  const b = Office.createBuilding();
+  const go = (hook_event_name, extra = {}) => Office.route(b, { session_id: 'T', project: 'p', hook_event_name, ...extra }, 1000);
+  const s = go('UserPromptSubmit').state;
+  go('PostToolUse', { tool_name: 'TaskCreate', tool_use_id: 't1', tool_input: { subject: 'Write tests', activeForm: 'Writing tests' }, tool_response: { task: { id: '1', subject: 'Write tests' } } });
+  go('PostToolUse', { tool_name: 'TaskCreate', tool_use_id: 't2', tool_input: { subject: 'Ship it' }, tool_response: { task: { id: '2', subject: 'Ship it' } } });
+  go('PostToolUse', { tool_name: 'TaskUpdate', tool_use_id: 't3', tool_input: { taskId: '1', status: 'in_progress' } });
+  assert.deepEqual(Object.values(s.tasks).map(t => [t.subject, t.status, t.active]), [['Write tests', 'in_progress', 'Writing tests'], ['Ship it', 'pending', '']]);
+  go('PostToolUse', { tool_name: 'TaskUpdate', tool_use_id: 't4', tool_input: { taskId: '2', status: 'deleted' } });
+  go('PostToolUse', { tool_name: 'TaskUpdate', tool_use_id: 't5', tool_input: { taskId: '9', status: 'completed' } });
+  assert.deepEqual(Object.keys(s.tasks), ['1', '9'], 'a deleted task goes; one made before the office opened still counts');
+  go('PostToolUse', { tool_name: 'TodoWrite', tool_use_id: 't6', tool_input: { todos: [{ content: 'a', status: 'completed' }, { content: 'b', status: 'pending' }] } });
+  assert.deepEqual(Object.values(s.tasks).map(t => `${t.subject}:${t.status}`), ['a:completed', 'b:pending'], 'TodoWrite sends the whole list');
+
+  go('SubagentStart', { agent_id: 'e1', agent_type: 'Explore' });
+  go('PostToolUse', { tool_name: 'Edit', tool_use_id: 'f1', file: 'src/app.js' });
+  go('PostToolUse', { agent_id: 'e1', tool_name: 'Write', tool_use_id: 'f2', file: 'src/app.js' });
+  go('PostToolUse', { tool_name: 'Edit', tool_use_id: 'f3', file: 'README.md' });
+  assert.deepEqual(s.files['src/app.js'], { n: 2, by: ['Claude', 'Explore'], at: 1000 });
+
+  go('Stop', { model: 'claude-haiku-4-5', context: 150000 });
+  assert.deepEqual([s.context, s.modelId, Office.windowOf(s.modelId)], [150000, 'claude-haiku-4-5', 200000]);
+  assert.deepEqual(['claude-opus-5-5', 'claude-sonnet-4-5', 'claude-opus-4-6', 'claude-sonnet-4-20250514', 'claude-3-7-sonnet-latest', 'claude-fable-5-2', undefined].map(Office.windowOf),
+    [1e6, 2e5, 1e6, 2e5, 2e5, 1e6, 1e6], 'context windows: current models 1M, the 4.5 generation and older 200K');
+  go('SessionStart', { session_id: 'T2', source: 'clear' });
+  assert.deepEqual([Object.keys(s.tasks).length, Object.keys(s.files).length], [0, 2], '/clear empties the to-do list; the files stay with the floor');
+}
+
 console.log('office reducer ok');

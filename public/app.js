@@ -7,7 +7,7 @@ const toShell = kind => { if (embedded) window.parent.postMessage({ agentOffice:
 let building = Office.createBuilding();
 let current = null; // id of the floor on screen
 let selected = null; // id of the character whose info card is open
-let pinned = null; // the Electron app's own claude session: its floor is the one to show
+let pinned = null; // the Electron app's tab in front runs this claude session: its floor is the one to show
 let appFocused = embedded || document.hasFocus();
 const EMPTY = Office.createState(); // drawn before any session has shown up
 const floor = () => (current && building.floors[current]) || null;
@@ -85,20 +85,68 @@ function askRow(c) {
   return el('li', 'ask', el('span', 'q', '승인 요청'), ` ${nameOf(c)}: ${tool} `, ask ? el('code', '', ask) : '', btn('허용', 'allow'), btn('거부', 'deny'));
 }
 
+// ---- the list under the office: people, claude's to-do list, files edited (plus any permission prompt, always) ----
+const tabButtons = [...document.querySelectorAll('#tabs button')];
+let tab = 'people';
+try { tab = localStorage.getItem('tab') || 'people'; } catch {}
+tabButtons.forEach(b => b.addEventListener('click', () => {
+  tab = b.dataset.tab;
+  try { localStorage.setItem('tab', tab); } catch {}
+  renderPanel();
+}));
+
+function personRow(c) {
+  const dot = el('span', 'dot');
+  dot.style.background = c.color;
+  const late = lateOf(c);
+  return el('li', '', dot, c.label + (c.task ? `: ${c.task}` : ''), el('span', 'st', ` — ${statusOf(c)}`), late ? el('span', 'late', late) : '');
+}
+const TICK = { completed: '✓', in_progress: '▶' };
+function taskRow(t) {
+  const li = el('li', `task ${t.status}`, el('span', 'tick', TICK[t.status] || '○'), t.status === 'in_progress' && t.active ? t.active : t.subject);
+  li.title = t.subject;
+  return li;
+}
+const fileRow = ([file, f]) => el('li', 'file', el('code', '', file), el('span', 'st', ` — ${f.by.join(', ')} · ${f.n}번`));
+const hint = text => el('li', 'hint', text);
+
+const tokens = n => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
+const ctxEl = document.getElementById('ctx');
+function renderContext(s) {
+  ctxEl.hidden = !s.context;
+  if (!s.context) return;
+  const win = Math.max(Office.windowOf(s.modelId), s.context), pct = Math.round((s.context / win) * 100);
+  const fill = el('span', 'fill');
+  Object.assign(fill.style, { width: `${pct}%`, background: pct >= 80 ? '#f38ba8' : pct >= 50 ? '#f9e2af' : '#a6e3a1' });
+  ctxEl.title = `Claude(보스)의 컨텍스트: ${tokens(s.context)} / ${tokens(win)} 토큰`;
+  ctxEl.replaceChildren(`컨텍스트 ${pct}%`, el('span', 'bar', fill));
+}
+
 let rosterKey = '';
-function renderRoster() {
-  const cs = Object.values(office().chars);
+function renderPanel() {
+  const s = office(), cs = Object.values(s.chars);
+  const tasks = Object.values(s.tasks), done = tasks.filter(t => t.status === 'completed').length;
+  const files = Object.entries(s.files).sort((a, z) => z[1].at - a[1].at);
+  // the to-do tab only while claude keeps a list: Claude Code gives current models TaskCreate only with
+  // CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (older models, like Opus 4.7, by default)
+  const view = tab === 'tasks' && !tasks.length ? 'people' : tab;
+  const label = { people: '직원', tasks: `할 일 ${done}/${tasks.length}`, files: files.length ? `파일 ${files.length}` : '파일' };
+  for (const b of tabButtons) {
+    b.textContent = label[b.dataset.tab];
+    b.hidden = b.dataset.tab === 'tasks' && !tasks.length;
+    b.setAttribute('aria-selected', String(b.dataset.tab === view));
+  }
+  renderContext(s);
   const asks = cs.filter(c => c.perm && c.status === 'waiting'), people = cs.filter(c => c.kind === 'boss' || c.busy);
+  const shown = view === 'tasks' ? tasks : view === 'files' ? files : people.map(c => [c.id, c.label, c.task, c.color, statusOf(c), lateOf(c)]);
   // rebuilt only when something shown changes, so buttons stay put under the cursor
-  const key = JSON.stringify([current, asks.map(c => c.perm.id), people.map(c => [c.id, c.label, c.task, c.color, statusOf(c), lateOf(c)])]);
+  const key = JSON.stringify([current, view, asks.map(c => c.perm.id), shown]);
   if (key === rosterKey) return;
   rosterKey = key;
-  roster.replaceChildren(...asks.map(askRow), ...people.map(c => {
-    const dot = el('span', 'dot');
-    dot.style.background = c.color;
-    const late = lateOf(c);
-    return el('li', '', dot, c.label + (c.task ? `: ${c.task}` : ''), el('span', 'st', ` — ${statusOf(c)}`), late ? el('span', 'late', late) : '');
-  }));
+  const rows = view === 'tasks' ? tasks.map(taskRow)
+    : view === 'files' ? [...files.map(fileRow), hint(files.length ? 'Edit/Write로 고친 파일만 보여요. 명령(Bash)으로 바꾼 파일은 빠져요.' : 'claude가 Edit/Write로 고친 파일이 여기 모여요.')]
+    : people.map(personRow);
+  roster.replaceChildren(...asks.map(askRow), ...rows);
 }
 
 const card = document.getElementById('card');
@@ -114,14 +162,14 @@ function renderCard() {
     ['최근 도구', c.history.join(' → ') || '-'],
     ['이번 근무', c.status !== 'sleeping' && c.since ? mmss(Date.now() - c.since) : '-'],
   ];
-  if (c.kind === 'boss') rows.push(['모델', c.model || '?'], ['받은 보고서', `${s.reports}장`]);
+  if (c.kind === 'boss') rows.push(['모델', c.model || '?'], ['컨텍스트', s.context ? `${tokens(s.context)} 토큰` : '-'], ['받은 보고서', `${s.reports}장`]);
   else rows.push(['받은 업무', `${c.jobs}건`], ['마지막 보고', c.lastReport || '-']);
   cardBody.replaceChildren(
     el('strong', '', c.kind === 'boss' ? 'Claude (보스)' : c.label || `직원 ${c.desk}`),
     ...rows.map(([k, v]) => el('div', '', el('span', 'k', k), v)));
 }
 
-function renderAll() { renderFloors(); renderRoster(); renderCard(); }
+function renderAll() { renderFloors(); renderPanel(); renderCard(); }
 setInterval(() => { // ticks the work timer, closes silent floors, finds a floor if ours went away, warns about silent people
   Office.prune(building);
   if (!floor()) { const latest = Object.values(building.floors).sort((a, z) => z.lastAt - a.lastAt)[0]; show(latest ? latest.id : null); }
@@ -239,11 +287,12 @@ if (embedded) {
   window.addEventListener('message', m => {
     if (m.source !== window.parent || !m.data) return;
     if (m.data.agentOffice === 'focus') appFocused = Boolean(m.data.value);
-    else if (m.data.agentOffice === 'session' && m.data.value !== pinned) { // the app started a claude with this session id
-      // its previous claude is gone (it may have been killed without a SessionEnd): close that floor
-      if (pinned) Office.route(building, { hook_event_name: 'SessionEnd', session_id: pinned, reason: 'other' });
+    else if (m.data.agentOffice === 'session') { // the app's tab in front runs this claude session: show its floor
+      // (a claude the app ends gets its floor closed by a SessionEnd the app posts to the server)
       pinned = m.data.value;
-      renderAll();
+      const id = building.alias[pinned];
+      if (id) show(id);
+      else renderAll(); // its first event will bring it up (choose)
     }
   });
 } else {
