@@ -193,6 +193,80 @@
     return s;
   }
 
+  // ---- the building: one floor (a whole office) per claude session ----
+  const CLOSED_KEEP_MS = 10 * 60 * 1000; // a closed floor stays, lights off, so a restart in the same folder reopens it
+  const STALE_MS = 2 * 60 * 60 * 1000; // silent this long = claude was killed without a SessionEnd
+
+  function createBuilding() { return { floors: {}, alias: {}, ended: new Set(), seq: 0 }; }
+
+  function closeFloor(f, now) {
+    f.closedAt = now;
+    for (const c of Object.values(f.state.chars)) Object.assign(c, { status: 'sleeping', tool: null });
+    f.state.lights = { reason: 'closed' };
+  }
+
+  // Which floor a session's event belongs to; a session seen for the first time gets one.
+  function floorFor(b, e, now) {
+    const sid = e.session_id, ev = e.hook_event_name, project = e.project || 'claude';
+    if (!sid) return null;
+    if (ev === 'SessionStart') b.ended.delete(sid); // claude --resume brings an ended session back
+    if (b.ended.has(sid)) return null; // a straggler from a session that already ended (hooks are async)
+    if (b.alias[sid]) return b.floors[b.alias[sid]] || null;
+    if (ev === 'SessionEnd' || ev === 'SubagentStop') return null;
+    const here = Object.values(b.floors).filter(f => f.project === project);
+    let f = null;
+    if (ev === 'SessionStart' && ['clear', 'compact'].includes(e.source)) { // same terminal, new session id
+      f = here.filter(x => !x.closedAt).sort((a, z) => (z.clearedAt || z.lastAt) - (a.clearedAt || a.lastAt))[0] || null;
+    }
+    if (!f) { // a restart in the same folder takes its closed floor back, fresh
+      f = here.find(x => x.closedAt) || null;
+      if (f) Object.assign(f, { state: createState(), closedAt: 0, clearedAt: 0 });
+    }
+    if (!f) {
+      const used = new Set(Object.values(b.floors).map(x => x.n));
+      let n = 1;
+      while (used.has(n)) n++;
+      const id = 'F' + ++b.seq;
+      f = b.floors[id] = { id, n, project, state: createState(), lastAt: now, closedAt: 0, clearedAt: 0 };
+    }
+    b.alias[sid] = f.id;
+    return f;
+  }
+
+  // Route a hook event to its session's floor and update that office. Returns the floor, or null.
+  function route(b, e, now = Date.now()) {
+    const f = floorFor(b, e, now);
+    if (!f) return null;
+    f.lastAt = now;
+    if (e.hook_event_name === 'SessionEnd') {
+      b.ended.add(e.session_id);
+      if (b.ended.size > 500) b.ended.delete(b.ended.values().next().value);
+      delete b.alias[e.session_id];
+      if (e.reason === 'clear') f.clearedAt = now; // the same terminal goes on with a new session id
+      else closeFloor(f, now);
+      return f;
+    }
+    reduce(f.state, e, now);
+    return f;
+  }
+
+  // Close floors claude left without a word; take away long-closed ones.
+  function prune(b, now = Date.now()) {
+    for (const f of Object.values(b.floors)) {
+      if (!f.closedAt && now - f.lastAt > STALE_MS) closeFloor(f, now);
+      if (f.closedAt && now - f.closedAt > CLOSED_KEEP_MS) {
+        delete b.floors[f.id];
+        for (const [sid, id] of Object.entries(b.alias)) if (id === f.id) delete b.alias[sid];
+      }
+    }
+  }
+
+  // What a floor's tab shows: busy, someone waiting for you, or closed.
+  function floorStatus(f) {
+    const cs = Object.values(f.state.chars);
+    return { closed: !!f.closedAt, waiting: !f.closedAt && cs.some(c => c.status === 'waiting'), working: !f.closedAt && cs.some(c => c.status !== 'sleeping') };
+  }
+
   // Top-left of a person's sprite: 16x28 seated cells sit at (desk.x+17, desk.y-15); temps stand.
   function seat(c) {
     if (c.desk < 0) { const [x, y] = SPOTS[c.n % SPOTS.length]; return { x: x - 6 * Math.floor(c.n / SPOTS.length), y, standing: true }; }
@@ -387,7 +461,7 @@
     if (s.lights) { // blackout: lights off + a sign hanging from the ceiling
       ctx.fillStyle = 'rgba(17,17,27,0.7)';
       ctx.fillRect(0, 0, W, H);
-      const str = { rate_limit: 'LIMIT', overloaded: 'OVERLOAD' }[s.lights.reason] || 'ERROR';
+      const str = { rate_limit: 'LIMIT', overloaded: 'OVERLOAD', closed: 'CLOSED' }[s.lights.reason] || 'ERROR';
       const w = textWidth(str) + 8, x = Math.round(W / 2 - w / 2);
       R(x + 2, 0, 1, 9, '#6c6f85'); R(x + w - 3, 0, 1, 9, '#6c6f85');
       R(x - 1, 8, w + 2, 11, INK); R(x, 9, w, 9, HOT);
@@ -395,7 +469,7 @@
     }
   }
 
-  const Office = { createState, reduce, step, hit, setModel, useArt, setTheme, themes, plateText, STATUS_KO };
+  const Office = { createState, reduce, createBuilding, route, prune, floorStatus, step, hit, setModel, useArt, setTheme, themes, plateText, STATUS_KO };
   if (typeof module === 'object') module.exports = Office;
   else window.Office = Office;
 })();

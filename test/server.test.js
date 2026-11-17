@@ -48,10 +48,11 @@ const tick = ms => new Promise(ok => setTimeout(ok, ms));
   const live = listen(a.port);
   await tick(100);
   const big = 'x'.repeat(2_000_000);
-  const res = await post(a.port, { hook_event_name: 'PreToolUse', session_id: 'S', tool_name: 'Write', tool_use_id: 'T', tool_input: { file_path: 'a', content: big, description: 'd' } });
+  const res = await post(a.port, { hook_event_name: 'PreToolUse', session_id: 'S', cwd: path.join(tmp, 'my-project'), tool_name: 'Write', tool_use_id: 'T', tool_input: { file_path: 'a', content: big, description: 'd' } });
   assert.equal(res.status, 204);
   const [e] = await live;
   assert.deepEqual([e.hook_event_name, e.tool_name, e.tool_input.description, e.tool_input.content, e.tool_input.file_path], ['PreToolUse', 'Write', 'd', undefined, undefined], 'file contents are not streamed');
+  assert.deepEqual([e.project, e.cwd], ['my-project', undefined], 'only the folder name, not its path');
   assert.ok(e._t > 0, 'stamped with the receive time');
 
   const [replayed] = await listen(a.port);
@@ -108,7 +109,7 @@ const tick = ms => new Promise(ok => setTimeout(ok, ms));
   // the hooks the plugin installs: one silent async command per event the office uses
   const hooks = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugin', 'hooks', 'hooks.json'), 'utf8')).hooks;
   const used = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest',
-    'SubagentStart', 'SubagentStop', 'Notification', 'Stop', 'StopFailure', 'PreCompact', 'PostCompact', 'PostModelSwitch'];
+    'SubagentStart', 'SubagentStop', 'Notification', 'Stop', 'StopFailure', 'PreCompact', 'PostCompact', 'PostModelSwitch', 'SessionEnd'];
   assert.deepEqual(Object.keys(hooks).sort(), used.sort());
   const commands = new Set(Object.values(hooks).map(([{ hooks: [h] }]) => (assert.equal(h.async, true), assert.equal(h.type, 'command'), h.command)));
   assert.equal(commands.size, 1, 'every event uses the same command');

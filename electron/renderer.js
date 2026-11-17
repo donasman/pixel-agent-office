@@ -19,6 +19,10 @@ window.addEventListener('message', m => {
   else if (m.data.agentOffice === 'focus-terminal') term.focus();
 });
 bridge.onWindowFocus(focused => toOffice('focus', focused));
+// tell the office which session is ours (again once its page has loaded: the first message can arrive before it)
+let session = null;
+bridge.onSession(id => { session = id; toOffice('session', id); });
+frame.addEventListener('load', () => { if (session) toOffice('session', session); });
 
 let alive = true;
 bridge.onData(d => term.write(d));
@@ -30,8 +34,7 @@ term.onData(d => {
   if (alive) return bridge.write(d);
   alive = true;
   term.reset();
-  toOffice('reset');
-  bridge.start(term.cols, term.rows);
+  bridge.start(term.cols, term.rows); // a new session: the office reopens this folder's floor for it
 });
 
 new ResizeObserver(() => { fit.fit(); bridge.resize(term.cols, term.rows); }).observe(termEl);

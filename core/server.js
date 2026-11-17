@@ -23,7 +23,8 @@ function slim(e) {
     tool_input: { description: cut(ti.description, 200), command: cut(ti.command, 300), message: cut(ti.message, 400) }, // message: a subagent's report
     tool_response: tr && typeof tr === 'object' && typeof tr.agentId === 'string' ? { agentId: tr.agentId } : undefined,
     is_interrupt: e.is_interrupt, error: cut(e.error, 200), notification_type: e.notification_type, message: cut(e.message, 200),
-    last_assistant_message: cut(e.last_assistant_message, 400), to_model: e.to_model, trigger: e.trigger,
+    last_assistant_message: cut(e.last_assistant_message, 400), to_model: e.to_model, trigger: e.trigger, reason: cut(e.reason, 40),
+    project: typeof e.cwd === 'string' ? path.basename(e.cwd).slice(0, 60) : undefined, // the folder's name names its floor, not the whole path
   };
 }
 

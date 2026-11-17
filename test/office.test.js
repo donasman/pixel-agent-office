@@ -150,4 +150,44 @@ assert.deepEqual(['general-purpose', 'Explore', 'code-reviewer', 'teammate', 'st
 // everything said in a bubble must be in the pixel font (no Hangul)
 for (const c of Object.values(chars)) if (c.say?.text) assert.match(c.say.text, /^[A-Z0-9!?.\-: /]*$/, `${c.id} says ${c.say.text}`);
 
+// --- the building: a floor per claude session ---
+{
+  const b = Office.createBuilding();
+  const go = (session_id, hook_event_name, extra = {}, now = 1000) => Office.route(b, { session_id, hook_event_name, project: 'readme', ...extra }, now);
+  const one = go('A', 'SessionStart', { source: 'startup' });
+  const two = go('B', 'SessionStart', { source: 'startup', project: 'blog' });
+  assert.deepEqual([one.n, one.project, two.n, two.project], [1, 'readme', 2, 'blog'], 'two sessions, two floors');
+  go('B', 'SubagentStart', { agent_id: 'b1', agent_type: 'Explore', project: 'blog' });
+  assert.equal(two.state.chars.desk1.label, 'Explore', "a subagent works on its session's floor");
+  assert.equal(one.state.chars.desk1.busy, false);
+
+  // /clear: the same terminal goes on with a new session id, even if the SessionStart comes first (async hooks)
+  go('A', 'UserPromptSubmit');
+  go('A2', 'SessionStart', { source: 'clear' }, 1100);
+  go('A', 'SessionEnd', { reason: 'clear' }, 1101);
+  assert.equal(go('A2', 'UserPromptSubmit', {}, 1102), one, '/clear stays on the same floor');
+  assert.equal(one.state.chars.boss.status, 'thinking', 'and the new session is still the boss');
+  assert.equal(go('A', 'Stop', {}, 1103), null, 'stragglers from an ended session are dropped');
+
+  // the restart bug: quit claude, start it again in the same folder -> the same floor, the new session is the boss
+  go('A2', 'SessionEnd', { reason: 'prompt_input_exit' }, 2000);
+  assert.deepEqual([Office.floorStatus(one).closed, one.state.lights.reason], [true, 'closed'], 'lights off when claude quits');
+  const again = go('A3', 'SessionStart', { source: 'startup' }, 3000);
+  go('A3', 'UserPromptSubmit', {}, 3001);
+  assert.equal(again, one, 'a restart reopens the floor');
+  assert.deepEqual([one.state.chars.boss.status, Object.values(one.state.chars).some(c => c.label === 'teammate')], ['thinking', false], 'the new session is the boss, not a TEAM desk');
+
+  // a second session in the same folder while the first is open gets its own floor
+  const three = go('C', 'SessionStart', { source: 'startup' }, 3100);
+  assert.equal(three.n, 3);
+  go('C', 'PermissionRequest', { tool_name: 'Write' }, 3200);
+  assert.deepEqual(Office.floorStatus(three), { closed: false, waiting: true, working: true });
+
+  // silent for hours = killed without SessionEnd; closed floors go away after 10 minutes
+  Office.prune(b, 3200 + 3 * 3600e3);
+  assert.equal(Office.floorStatus(two).closed, true);
+  Office.prune(b, 3200 + 3 * 3600e3 + 11 * 60e3);
+  assert.deepEqual(Object.keys(b.floors), [], 'closed floors are taken away');
+}
+
 console.log('office reducer ok');

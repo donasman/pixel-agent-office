@@ -1,6 +1,7 @@
 // Terminal-included shell: real claude in a terminal on the left, the shared office page (core server) on the right.
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { spawnSync } = require('child_process');
+const crypto = require('crypto');
 const os = require('os');
 const path = require('path');
 const pty = require('node-pty');
@@ -21,7 +22,9 @@ function killClaude() {
 
 function startClaude(cols, rows) {
   killClaude();
-  const t = (term = pty.spawn('claude.exe', ['--settings', HOOKS], {
+  const session = crypto.randomUUID(); // we name the session, so the office knows which floor is this terminal's
+  win?.webContents.send('claude-session', session);
+  const t = (term = pty.spawn('claude.exe', ['--settings', HOOKS, '--session-id', session], {
     name: 'xterm-256color', cols, rows, cwd,
     // Classic renderer: in claude's fullscreen renderer the mouse wheel is a no-op on native Windows, and
     // classic leaves output in xterm's scrollback so the wheel scrolls it. Only affects claude started here.

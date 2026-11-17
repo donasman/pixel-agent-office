@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld('bridge', {
   onData: cb => ipcRenderer.on('pty-data', (_, d) => cb(d)),
   onExit: cb => ipcRenderer.on('pty-exit', () => cb()),
   onWindowFocus: cb => ipcRenderer.on('win-focus', (_, focused) => cb(focused)),
+  onSession: cb => ipcRenderer.on('claude-session', (_, id) => cb(id)),
 });

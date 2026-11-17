@@ -34,6 +34,8 @@ Then use Claude Code as usual, in any terminal or IDE. The office opens in an ap
 
 Click anyone to see their task, recent tools, work time and last report. Three office themes: day, late night and wood.
 
+Running several claude sessions at once? Each gets its own floor, named after its folder (`1F readme`, `2F blog`). Tabs switch floors, and the view moves to a floor that needs you (a permission prompt) or comes alive while yours is quiet; turn that off with 자동 이동. When a session ends its floor closes, and restarting claude in that folder opens it again.
+
 The art lives in `public/art/`. It is cut out of the pixel-art design by `node tools/import-design.js` (inputs in `tools/design/`).
 
 ## How it works

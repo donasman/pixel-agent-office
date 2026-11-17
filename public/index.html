@@ -19,16 +19,28 @@
   #card .k { display: inline-block; width: 64px; color: #a6adc8; }
   #card-close { position: absolute; top: 4px; right: 6px; border: 0; background: none; color: #a6adc8; font-size: 16px; cursor: pointer; }
   #card-close:hover, #card-close:focus-visible { color: #cdd6f4; }
-  #mute, #theme { position: absolute; top: 8px; right: 8px; padding: 2px 6px; border: 1px solid #45475a; border-radius: 4px; background: #11111b; color: #cdd6f4; font: 13px "Malgun Gothic", sans-serif; cursor: pointer; }
-  #theme { right: 52px; }
-  #mute:hover, #mute:focus-visible, #theme:hover, #theme:focus-visible { border-color: #a6adc8; }
+  #bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #313244; }
+  #floors { flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; }
+  #bar button { flex: none; padding: 3px 8px; border: 1px solid #45475a; border-radius: 4px; background: #11111b; color: #cdd6f4; font: 13px "Malgun Gothic", sans-serif; cursor: pointer; white-space: nowrap; }
+  #bar button:hover, #bar button:focus-visible { border-color: #a6adc8; }
+  #floors button { color: #a6adc8; }
+  #floors button[aria-selected="true"] { color: #cdd6f4; border-color: #f9e2af; }
+  #floors button.closed { opacity: 0.55; }
+  #floors .mark { margin-left: 6px; font-weight: 700; }
+  #floors .working { color: #a6e3a1; }
+  #floors .waiting { color: #f9e2af; }
+  #follow[aria-pressed="false"] { color: #7f849c; }
 </style>
 </head>
 <body>
+<div id="bar">
+  <div id="floors" role="tablist" aria-label="층 (claude 세션)"></div>
+  <button id="follow" aria-pressed="true" title="일이 생긴 층으로 자동 이동">자동 이동</button>
+  <button id="theme" title="사무실 테마 바꾸기">주간</button>
+  <button id="mute" aria-label="알림 소리 끄기" aria-pressed="false" title="알림 소리 켜기/끄기">🔔</button>
+</div>
 <canvas id="office" aria-label="에이전트 사무실"></canvas>
 <ul id="roster" aria-live="polite"></ul>
-<button id="mute" aria-label="알림 소리 끄기" aria-pressed="false" title="알림 소리 켜기/끄기">🔔</button>
-<button id="theme" title="사무실 테마 바꾸기">주간</button>
 <div id="card" role="dialog" aria-label="캐릭터 정보" hidden>
   <button id="card-close" aria-label="닫기">×</button>
   <div id="card-body"></div>
