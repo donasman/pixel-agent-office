@@ -12,8 +12,7 @@ const core = require('../core/server');
 
 // The plugin's own hooks, passed with --settings so the claude started here reports even without the plugin installed.
 // Without Git Bash, claude runs hooks in PowerShell, so that machine gets the PowerShell variant.
-const gitBash = [process.env.CLAUDE_CODE_GIT_BASH_PATH, ...['ProgramFiles', 'ProgramFiles(x86)'].map(k => process.env[k] && path.join(process.env[k], 'Git', 'bin', 'bash.exe')),
-  process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe')].find(p => p && fs.existsSync(p));
+const gitBash = require('../core/git-bash');
 const HOOKS = path.join(__dirname, '..', gitBash ? 'plugin' : 'plugin-powershell', 'hooks', 'hooks.json');
 // What the claude started here gets with --settings: the plugin's hooks, plus the office's status line (the one place
 // claude hands out the subscription usage), which then shows your own status line, if you have one.

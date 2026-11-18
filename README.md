@@ -6,41 +6,37 @@ Watch your Claude Code agents work in a pixel-art office. The main agent is the 
 
 ## Quick start
 
-1. In Claude Code, install the plugin:
+```
+npx pixel-agent-office
+```
 
-   ```
-   /plugin marketplace add donasman/pixel-agent-office
-   /plugin install agent-office@agent-office
-   ```
+Node.js 18 or later. The first time, it offers to install the Claude Code plugin whose hooks tell the office what claude is doing: press Enter. Then use Claude Code as usual, in any terminal or IDE. The office opens in an app window (Edge or Chrome) or in your default browser. Close the window and the viewer stops. A claude that was already running before the plugin was installed shows up after you restart it.
 
-   On Windows without Git for Windows, install `agent-office-powershell@agent-office` instead of `agent-office@agent-office`.
+To install the plugin yourself instead, run this in Claude Code:
 
-2. Open the office (Node.js 18 or later):
+```
+/plugin marketplace add donasman/pixel-agent-office
+/plugin install agent-office@agent-office
+```
 
-   ```
-   npx pixel-agent-office
-   ```
-
-Then use Claude Code as usual, in any terminal or IDE. The office opens in an app window (Edge or Chrome) or in your default browser. Close the window and the viewer stops. A claude that was already running before you installed the plugin shows up after you restart it.
+On Windows without Git for Windows, install `agent-office-powershell@agent-office` instead (`npx` picks it for you).
 
 ## 설치 (한국어)
 
-1. Claude Code에서 플러그인을 설치합니다.
+```
+npx pixel-agent-office
+```
 
-   ```
-   /plugin marketplace add donasman/pixel-agent-office
-   /plugin install agent-office@agent-office
-   ```
+Node.js 18 이상이 필요합니다. 처음 실행하면 Claude Code 플러그인을 설치할지 물어봅니다. 플러그인이 claude가 하는 일을 사무실에 알려 주니 Enter를 누르세요. 그다음부터는 터미널이든 IDE든 평소처럼 Claude Code를 쓰면 됩니다. 사무실은 앱 창(Edge 또는 Chrome)이나 기본 브라우저로 열리고, 창을 닫으면 뷰어도 꺼집니다. 플러그인을 설치하기 전부터 켜져 있던 claude는 다시 시작해야 사무실에 나타납니다. 사무실 화면과 안내는 한국어로 나옵니다.
 
-   Git for Windows가 없는 Windows에서는 두 번째 명령 대신 `/plugin install agent-office-powershell@agent-office`를 실행하세요.
+플러그인을 직접 설치하려면 Claude Code에서 다음을 실행하세요.
 
-2. 사무실을 엽니다 (Node.js 18 이상).
+```
+/plugin marketplace add donasman/pixel-agent-office
+/plugin install agent-office@agent-office
+```
 
-   ```
-   npx pixel-agent-office
-   ```
-
-그다음부터는 터미널이든 IDE든 평소처럼 Claude Code를 쓰면 됩니다. 사무실은 앱 창(Edge 또는 Chrome)이나 기본 브라우저로 열리고, 창을 닫으면 뷰어도 꺼집니다. 플러그인을 설치하기 전부터 켜져 있던 claude는 다시 시작해야 사무실에 나타납니다. 사무실 화면과 안내는 한국어로 나옵니다.
+Git for Windows가 없는 Windows에서는 두 번째 명령 대신 `/plugin install agent-office-powershell@agent-office`를 실행하세요. `npx`로 설치하면 알아서 골라 줍니다.
 
 ## What happens in the office
 
