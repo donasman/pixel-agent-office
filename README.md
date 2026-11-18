@@ -129,6 +129,7 @@ and delete the `~/.agent-office` folder.
 
 ```
 npm test          # office logic, server, npx entry
+node test/unix.test.js   # Linux/macOS: the hooks in sh/bash/zsh, and the one-line install if claude is on PATH
 npm run viewer    # the viewer from source
 npm start         # the desktop app
 ```

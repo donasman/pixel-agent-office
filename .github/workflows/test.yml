@@ -1,0 +1,25 @@
+# Tests on Linux and macOS: the office logic, server and npx entry (npm test), then the hooks in sh/bash/zsh and the
+# one-line install with the real claude CLI (test/unix.test.js).
+name: Test
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: node test/unix.test.js
