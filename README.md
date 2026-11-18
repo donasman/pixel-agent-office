@@ -2,6 +2,8 @@
 
 Watch your Claude Code agents work in a pixel-art office. The main agent is the boss. Every subagent is a staff member who wakes up when given a task, works at their desk, sends a report flying to the boss when done, and goes back to sleep.
 
+[한국어 설치 안내](#설치-한국어)
+
 ## Quick start
 
 1. In Claude Code, install the plugin:
@@ -11,13 +13,34 @@ Watch your Claude Code agents work in a pixel-art office. The main agent is the 
    /plugin install agent-office@agent-office
    ```
 
+   On Windows without Git for Windows, install `agent-office-powershell@agent-office` instead of `agent-office@agent-office`.
+
 2. Open the office (Node.js 18 or later):
 
    ```
    npx pixel-agent-office
    ```
 
-Then use Claude Code as usual, in any terminal or IDE. The office opens in an app window (Edge or Chrome) or in your default browser. Close the window and the viewer stops.
+Then use Claude Code as usual, in any terminal or IDE. The office opens in an app window (Edge or Chrome) or in your default browser. Close the window and the viewer stops. A claude that was already running before you installed the plugin shows up after you restart it.
+
+## 설치 (한국어)
+
+1. Claude Code에서 플러그인을 설치합니다.
+
+   ```
+   /plugin marketplace add donasman/pixel-agent-office
+   /plugin install agent-office@agent-office
+   ```
+
+   Git for Windows가 없는 Windows에서는 두 번째 명령 대신 `/plugin install agent-office-powershell@agent-office`를 실행하세요.
+
+2. 사무실을 엽니다 (Node.js 18 이상).
+
+   ```
+   npx pixel-agent-office
+   ```
+
+그다음부터는 터미널이든 IDE든 평소처럼 Claude Code를 쓰면 됩니다. 사무실은 앱 창(Edge 또는 Chrome)이나 기본 브라우저로 열리고, 창을 닫으면 뷰어도 꺼집니다. 플러그인을 설치하기 전부터 켜져 있던 claude는 다시 시작해야 사무실에 나타납니다. 사무실 화면과 안내는 한국어로 나옵니다.
 
 ## What happens in the office
 

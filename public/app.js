@@ -123,12 +123,21 @@ function taskRow(t) {
 const fileRow = ([file, f]) => el('li', 'file', el('code', '', file), el('span', 'st', ` — ${f.by.join(', ')} · ${f.n}번`));
 const hint = text => el('li', 'hint', text);
 const clock = at => new Date(at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-function reportRow(r) {
+function copyButton(text) {
   const copy = el('button', 'copy', '복사');
-  copy.addEventListener('click', () => navigator.clipboard?.writeText(r.text).then(() => { copy.textContent = '복사됨'; }, () => { copy.textContent = '복사 안 됨'; }));
-  const body = r.text ? el('pre', '', r.text) : el('p', 'hint', '보고 내용이 오지 않았어요.');
-  return el('li', 'report', el('details', '', el('summary', '', el('span', 'when', clock(r.at)), ` ${r.who}${r.task ? ` · ${r.task}` : ''}`), body, r.text ? copy : ''));
+  copy.addEventListener('click', () => navigator.clipboard?.writeText(text).then(() => { copy.textContent = '복사됨'; }, () => { copy.textContent = '복사 안 됨'; }));
+  return copy;
 }
+function reportRow(r) {
+  const body = r.text ? el('pre', '', r.text) : el('p', 'hint', '보고 내용이 오지 않았어요.');
+  return el('li', 'report', el('details', '', el('summary', '', el('span', 'when', clock(r.at)), ` ${r.who}${r.task ? ` · ${r.task}` : ''}`), body, r.text ? copyButton(r.text) : ''));
+}
+// No claude session has shown up yet: how to connect claude to the office (the desktop app passes the hooks itself)
+const setupRows = () => [
+  hint('아직 claude 소식이 없어요. claude를 쓰기 시작하면 여기 층이 생겨요. 계속 비어 있으면 Claude Code에서 아래 두 명령으로 플러그인을 설치하고 claude를 다시 시작하세요.'),
+  ...['/plugin marketplace add donasman/pixel-agent-office', '/plugin install agent-office@agent-office'].map(cmd => el('li', 'setup', el('code', '', cmd), copyButton(cmd))),
+  hint('Git for Windows가 없는 Windows에서는 두 번째 명령 대신 /plugin install agent-office-powershell@agent-office'),
+];
 const logRow = j => el('li', 'log', el('span', 'when', clock(j.at)), el('span', 'who', ` ${j.who} `), j.text);
 
 const tokens = n => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
@@ -165,7 +174,8 @@ function renderPanel() {
   const key = JSON.stringify([current, view, asks.map(c => c.perm.id), shown]);
   if (key === rosterKey) return;
   rosterKey = key;
-  const rows = view === 'tasks' ? tasks.map(taskRow)
+  const rows = !floor() && !embedded ? setupRows()
+    : view === 'tasks' ? tasks.map(taskRow)
     : view === 'files' ? [...files.map(fileRow), hint(files.length ? 'Edit/Write로 고친 파일만 보여요. 명령(Bash)으로 바꾼 파일은 빠져요.' : 'claude가 Edit/Write로 고친 파일이 여기 모여요.')]
     : view === 'reports' ? (s.inbox.length ? s.inbox.map(reportRow) : [hint('서브에이전트와 팀원이 일을 마치고 보낸 보고서가 여기 모여요. 누르면 전문이 보여요.')])
     : view === 'log' ? (s.journal.length ? s.journal.slice().reverse().map(logRow) : [hint('이 층에서 일어난 일이 시간순으로 쌓여요.')])
