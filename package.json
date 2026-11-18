@@ -4,7 +4,7 @@
   "description": "Watch your Claude Code subagents work in a pixel-art office. The local viewer for the agent-office Claude Code plugin.",
   "author": "donasman",
   "license": "MIT",
-  "homepage": "https://github.com/donasman/pixel-agent-office#readme",
+  "homepage": "https://donasman.github.io/pixel-agent-office/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/donasman/pixel-agent-office.git"

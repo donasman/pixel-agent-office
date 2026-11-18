@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Office</title>
+<meta name="description" content="A pixel-art office for Claude Code. The main agent is the boss, every subagent is a staff member. Watch them work, live.">
+<meta property="og:title" content="Agent Office">
+<meta property="og:description" content="Watch your Claude Code agents at work in a pixel-art office.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%230a0a0a'/%3E%3Crect x='2' y='1' width='4' height='3' fill='%23f3c9a6'/%3E%3Crect x='2' y='1' width='4' height='1' fill='%233b2a20'/%3E%3Crect x='1' y='4' width='6' height='3' fill='%23d97757'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #0a0a0a; --muted: #666666; --line: #eaeaea; --card: #fafafa;
+    --code-bg: #0a0a0a; --code-fg: #ededed; --code-muted: #8f8f8f; --tab-on: #0a0a0a; --tab-on-fg: #ffffff;
+    --office: #181825; --hot: #f9e2af;
+    --sans: Geist, "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "Geist Mono", ui-monospace, Consolas, "Noto Sans KR", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0a0a0a; --fg: #ededed; --muted: #a1a1a1; --line: #262626; --card: #111111;
+      --code-bg: #161616; --code-fg: #ededed; --code-muted: #8f8f8f; --tab-on: #ededed; --tab-on-fg: #0a0a0a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0a0a0a; --fg: #ededed; --muted: #a1a1a1; --line: #262626; --card: #111111;
+    --code-bg: #161616; --code-fg: #ededed; --code-muted: #8f8f8f; --tab-on: #ededed; --tab-on-fg: #0a0a0a;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 var(--sans); }
+  a { color: inherit; }
+  code { font-family: var(--mono); font-size: 0.9em; }
+  p code, li code, dd code { padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--card); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  @media (max-width: 600px) { .wrap { padding: 0 16px; } }
+
+  /* nav */
+  header { position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(8px); }
+  nav { display: flex; align-items: center; gap: 20px; height: 56px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; text-decoration: none; }
+  .brand i { width: 28px; height: 28px; border-radius: 6px; background: #f3ede1 url(art/people.png) -2px -6px / 192px auto no-repeat; image-rendering: pixelated; }
+  nav .links { margin-left: auto; display: flex; align-items: center; gap: 18px; font-size: 14px; color: var(--muted); }
+  nav .links a { text-decoration: none; }
+  nav .links a:hover { color: var(--fg); }
+  #lang { padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--fg); font: 13px var(--sans); cursor: pointer; }
+  #lang:hover { border-color: var(--muted); }
+
+  /* hero */
+  .hero { padding-top: 64px; padding-bottom: 40px; text-align: center; }
+  .eyebrow { display: inline-block; margin: 0 0 20px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; font: 13px var(--mono); color: var(--muted); }
+  h1 { margin: 0 auto; max-width: 15em; font-size: clamp(36px, 6vw, 60px); line-height: 1.08; letter-spacing: -0.035em; font-weight: 700; }
+  :lang(ko) h1 { letter-spacing: -0.02em; word-break: keep-all; }
+  .sub { margin: 20px auto 0; max-width: 36em; font-size: 18px; color: var(--muted); }
+  :lang(ko) .sub, :lang(ko) .card p, :lang(ko) dd, :lang(ko) .note, :lang(ko) .caption { word-break: keep-all; }
+
+  /* install */
+  .install { max-width: 640px; margin: 40px auto 0; text-align: left; }
+  .install h2 { margin: 0 0 12px; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  [role="tablist"] { display: inline-flex; border: 1px solid var(--line); }
+  [role="tab"] { padding: 8px 16px; border: 0; background: transparent; color: var(--muted); font: 13px var(--mono); text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer; }
+  [role="tab"][aria-selected="true"] { background: var(--tab-on); color: var(--tab-on-fg); }
+  [role="tab"]:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+  .cmds { margin-top: 12px; padding: 8px 0; background: var(--code-bg); color: var(--code-fg); }
+  .cmd { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 20px; }
+  .cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: 15px; }
+  .cmd code::before { content: "$ "; color: var(--code-muted); }
+  .cmd.claude code::before { content: "> "; }
+  .copy { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #333; border-radius: 6px; background: transparent; color: var(--code-fg); cursor: pointer; }
+  .copy:hover { border-color: #666; }
+  .copy svg { width: 16px; height: 16px; }
+  .note { margin: 12px 0 0; font-size: 14px; color: var(--muted); }
+
+  /* demo */
+  /* the canvas gets a whole-number pixel scale from site.js (fitDemo), so the window wraps it exactly */
+  .demo { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; margin-top: 56px; text-align: left; }
+  .window { flex: none; max-width: 100%; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--office); box-shadow: 0 20px 60px -30px rgba(0, 0, 0, 0.45); }
+  .titlebar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; background: #11111b; color: #a6adc8; font: 12px var(--mono); }
+  .titlebar .dots { display: flex; gap: 6px; margin-right: 6px; }
+  .titlebar .dots span { width: 10px; height: 10px; border-radius: 50%; background: #313244; }
+  .titlebar .floor { padding: 2px 8px; border: 1px solid #f9e2af; border-radius: 4px; color: #cdd6f4; }
+  #theme { margin-left: auto; padding: 2px 8px; border: 1px solid #45475a; border-radius: 4px; background: transparent; color: #cdd6f4; font: 12px var(--mono); cursor: pointer; }
+  #demo { display: block; width: 576px; max-width: 100%; aspect-ratio: 4 / 3; }
+  .feed { flex: 0 0 300px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--code-bg); color: var(--code-fg); overflow: hidden; }
+  @media (max-width: 860px) { .feed { flex: 1 1 100%; } }
+  .feed h3 { display: flex; align-items: center; margin: 0; padding: 0 14px; height: 36px; border-bottom: 1px solid #262626; font: 12px var(--mono); color: var(--code-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  #feed { flex: 1; margin: 0; padding: 10px 14px; list-style: none; font: 12.5px/1.5 var(--mono); min-height: 220px; overflow: hidden; }
+  #feed li { padding: 3px 0; animation: in 0.25s ease-out; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #feed .who { color: #f9e2af; }
+  #feed .who.you { color: #a6e3a1; }
+  #feed .tool { color: #89b4fa; }
+  #feed .arg { color: var(--code-muted); }
+  @keyframes in { from { opacity: 0; transform: translateY(4px); } }
+  @media (prefers-reduced-motion: reduce) { #feed li { animation: none; } }
+  .caption { flex: 1 1 100%; margin: 0; font-size: 14px; color: var(--muted); text-align: center; }
+
+  /* sections */
+  section.wrap { margin-top: 88px; }
+  h2.title { margin: 0 0 32px; font-size: clamp(26px, 4vw, 36px); line-height: 1.15; letter-spacing: -0.03em; font-weight: 700; }
+  :lang(ko) h2.title { letter-spacing: -0.015em; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+  @media (max-width: 860px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .card { padding: 28px 24px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .card h3 { margin: 16px 0 6px; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+  .card p { margin: 0; font-size: 15px; color: var(--muted); }
+  .px { display: block; height: 40px; background: url(art/bubbles.png) 0 0 / 288px 40px no-repeat; image-rendering: pixelated; }
+
+  .flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); }
+  @media (max-width: 760px) { .flow { grid-template-columns: minmax(0, 1fr); } }
+  .step { position: relative; padding: 24px; border-right: 1px solid var(--line); }
+  .step:last-child { border-right: 0; }
+  @media (max-width: 760px) { .step { border-right: 0; border-bottom: 1px solid var(--line); } .step:last-child { border-bottom: 0; } }
+  .step .n { font: 12px var(--mono); color: var(--muted); }
+  .step strong { display: block; margin-top: 8px; font-size: 16px; font-weight: 600; }
+  .step span { font-size: 14px; color: var(--muted); }
+  .flow + .note { margin-top: 16px; font-size: 15px; }
+
+  dl { margin: 0; border-top: 1px solid var(--line); }
+  dt { padding: 20px 0 0; font-weight: 600; }
+  dd { margin: 6px 0 0; padding-bottom: 20px; border-bottom: 1px solid var(--line); color: var(--muted); }
+
+  footer { margin-top: 96px; padding: 32px 0 48px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+  footer .links { margin-left: auto; display: flex; gap: 18px; }
+</style>
+</head>
+<body>
+<header>
+  <nav class="wrap" aria-label="Main">
+    <a class="brand" href="#"><i aria-hidden="true"></i>Agent Office</a>
+    <div class="links">
+      <a href="https://github.com/donasman/pixel-agent-office">GitHub</a>
+      <a href="https://www.npmjs.com/package/pixel-agent-office">npm</a>
+      <button id="lang" type="button">한국어</button>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <p class="eyebrow" data-i18n="eyebrow">For Claude Code · Free and open source</p>
+    <h1 data-i18n="h1">Watch your Claude Code agents at work.</h1>
+    <p class="sub" data-i18n="sub">A pixel-art office for your sessions. The main agent is the boss and every subagent is a staff member: they wake up, work at their desks, and fly their reports back to the boss. Live.</p>
+
+    <div class="install">
+      <h2 data-i18n="install">Install</h2>
+      <div role="tablist" aria-label="Install method">
+        <button role="tab" id="tab-npx" aria-controls="panel-npx" aria-selected="true">npx</button>
+        <button role="tab" id="tab-plugin" aria-controls="panel-plugin" aria-selected="false" tabindex="-1">Claude Code</button>
+        <button role="tab" id="tab-app" aria-controls="panel-app" aria-selected="false" tabindex="-1" data-i18n="tabApp">Desktop app</button>
+      </div>
+      <div role="tabpanel" id="panel-npx" aria-labelledby="tab-npx">
+        <div class="cmds"><div class="cmd"><code>npx pixel-agent-office</code></div></div>
+        <p class="note" data-i18n="noteNpx">Node.js 18 or later. The first run offers to install the Claude Code plugin: press Enter. Then use Claude Code as usual, in any terminal or IDE.</p>
+      </div>
+      <div role="tabpanel" id="panel-plugin" aria-labelledby="tab-plugin" hidden>
+        <div class="cmds">
+          <div class="cmd claude"><code>/plugin marketplace add donasman/pixel-agent-office</code></div>
+          <div class="cmd claude"><code>/plugin install agent-office@agent-office</code></div>
+        </div>
+        <p class="note" data-i18n="notePlugin">Run these inside Claude Code, then open the office with <code>npx pixel-agent-office</code>. On Windows without Git, install <code>agent-office-powershell@agent-office</code> instead.</p>
+      </div>
+      <div role="tabpanel" id="panel-app" aria-labelledby="tab-app" hidden>
+        <div class="cmds">
+          <div class="cmd"><code>git clone https://github.com/donasman/pixel-agent-office</code></div>
+          <div class="cmd"><code>cd pixel-agent-office</code></div>
+          <div class="cmd"><code>npm install</code></div>
+          <div class="cmd"><code>npm start</code></div>
+        </div>
+        <p class="note" data-i18n="noteApp">Windows only. Claude in terminal tabs on the left, the office on the right. No plugin needed.</p>
+      </div>
+    </div>
+
+    <div class="demo">
+      <div class="window">
+        <div class="titlebar"><span class="dots" aria-hidden="true"><span></span><span></span><span></span></span><span class="floor">1F my-app</span><button id="theme" type="button" title="Theme">DAY</button></div>
+        <canvas id="demo" aria-label="Live demo of the office: a boss and eight staff members at their desks"></canvas>
+      </div>
+      <div class="feed" aria-hidden="true">
+        <h3 data-i18n="feed">Hook events</h3>
+        <ol id="feed"></ol>
+      </div>
+      <p class="caption" data-i18n="caption">Live demo: the real office, playing a scripted session. Click someone.</p>
+    </div>
+  </div>
+
+  <section class="wrap" aria-labelledby="features">
+    <h2 class="title" id="features" data-i18n="featuresTitle">Everything claude is doing, at a glance</h2>
+    <div class="grid">
+      <div class="card"><i class="px" style="width:28px;background-position:-152px 0" aria-hidden="true"></i><h3 data-i18n="f1">Answer permission prompts</h3><p data-i18n="f1p">A “?” bubble and a chime when claude asks. Allow or deny from the office; whichever you answer first, office or terminal, wins.</p></div>
+      <div class="card"><i class="px" style="width:36px;background-position:-184px 0" aria-hidden="true"></i><h3 data-i18n="f2">Spot stuck tools</h3><p data-i18n="f2p">A command that runs five minutes without a sound gets flagged, on its desk and on its floor tab.</p></div>
+      <div class="card"><i class="px" style="width:36px;background-position:-112px 0" aria-hidden="true"></i><h3 data-i18n="f3">Reports and a work log</h3><p data-i18n="f3p">Every subagent's full report, ready to copy, and a timeline of what happened in each session.</p></div>
+      <div class="card"><i class="px" style="width:60px;background-position:-224px 0" aria-hidden="true"></i><h3 data-i18n="f4">Context and usage gauges</h3><p data-i18n="f4p">How full the boss's context is, and how much of your 5-hour and weekly limits you've used.</p></div>
+      <div class="card"><i class="px" style="width:36px;background-position:0 0" aria-hidden="true"></i><h3 data-i18n="f5">One floor per session</h3><p data-i18n="f5p">Run several claudes at once. Each gets its own floor, named after its folder.</p></div>
+      <div class="card"><i class="px" style="width:28px;background-position:-40px 0" aria-hidden="true"></i><h3 data-i18n="f6">Agent teams</h3><p data-i18n="f6p">Teammates get desks on the lead's floor, and wake at the same desk when given more work.</p></div>
+    </div>
+  </section>
+
+  <section class="wrap" aria-labelledby="how">
+    <h2 class="title" id="how" data-i18n="howTitle">How it works</h2>
+    <div class="flow">
+      <div class="step"><span class="n">01</span><strong>Claude Code</strong><span data-i18n="s1">runs as usual</span></div>
+      <div class="step"><span class="n">02</span><strong data-i18n="s2t">Plugin hooks</strong><span data-i18n="s2">send each event</span></div>
+      <div class="step"><span class="n">03</span><strong data-i18n="s3t">Local server</strong><span data-i18n="s3">on 127.0.0.1</span></div>
+      <div class="step"><span class="n">04</span><strong data-i18n="s4t">Office window</strong><span data-i18n="s4">draws it</span></div>
+    </div>
+    <p class="note" data-i18n="howNote">Everything stays on your machine. The hooks make no model calls and cost no tokens, and they do nothing while the office is closed.</p>
+  </section>
+
+  <section class="wrap" aria-labelledby="faq">
+    <h2 class="title" id="faq" data-i18n="faqTitle">FAQ</h2>
+    <dl>
+      <dt data-i18n="q1">Does it cost tokens or slow claude down?</dt>
+      <dd data-i18n="a1">No. The hooks pass events to a server on your computer, in the background. The one exception is the permission hook, which waits for your answer, and only while the office is open.</dd>
+      <dt data-i18n="q2">Is my code sent anywhere?</dt>
+      <dd data-i18n="a2">No. The server listens on 127.0.0.1 only, and the office page runs in your own browser.</dd>
+      <dt data-i18n="q3">What do I need?</dt>
+      <dd data-i18n="a3">Claude Code and Node.js 18 or later. Tested on Windows; macOS and Linux use the same bash hooks.</dd>
+      <dt data-i18n="q4">How do I remove it?</dt>
+      <dd data-i18n="a4">Run <code>/plugin uninstall agent-office@agent-office</code> in Claude Code and delete the <code>~/.agent-office</code> folder.</dd>
+    </dl>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span data-i18n="footer">MIT License. An unofficial project, not affiliated with Anthropic.</span>
+    <span class="links"><a href="https://github.com/donasman/pixel-agent-office">GitHub</a><a href="https://www.npmjs.com/package/pixel-agent-office">npm</a><a href="https://github.com/donasman/pixel-agent-office/releases">Releases</a></span>
+  </div>
+</footer>
+
+<script src="office.js"></script>
+<script src="site.js"></script>
+</body>
+</html>
