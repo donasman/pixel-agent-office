@@ -8,7 +8,11 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1e2e; }
   body { display: flex; }
-  #left { flex: 1 1 55%; min-width: 0; display: flex; flex-direction: column; }
+  #left { flex: 0 0 55%; min-width: 0; display: flex; flex-direction: column; }
+  #split { flex: none; width: 5px; background: #313244; cursor: col-resize; touch-action: none; }
+  #split:hover, #split:focus-visible, body.dragging #split { background: #f9e2af; outline: none; }
+  body.dragging { cursor: col-resize; user-select: none; }
+  body.dragging #office { pointer-events: none; } /* the iframe would swallow the drag */
   #tabs { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid #313244; overflow-x: auto; }
   #tabs .tab { flex: none; display: flex; border: 1px solid #45475a; border-radius: 4px; background: #11111b; }
   #tabs .tab[aria-selected="true"] { border-color: #f9e2af; }
@@ -22,7 +26,7 @@
   #terms { flex: 1; min-height: 0; }
   .term { height: 100%; padding: 6px; box-sizing: border-box; }
   .term[hidden] { display: none; }
-  #office { flex: 1 1 45%; min-width: 0; border: 0; background: #181825; }
+  #office { flex: 1 1 0; min-width: 0; border: 0; background: #181825; }
 </style>
 </head>
 <body>
@@ -30,6 +34,7 @@
   <div id="tabs" role="tablist" aria-label="claude sessions"></div>
   <div id="terms"></div>
 </div>
+<div id="split" role="separator" aria-orientation="vertical" aria-controls="left" tabindex="0"></div>
 <iframe id="office" title="Agent office"></iframe>
 <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
 <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>

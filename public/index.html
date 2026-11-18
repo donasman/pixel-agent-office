@@ -44,6 +44,16 @@
   #card .k { display: inline-block; width: 76px; color: #a6adc8; } /* fits "Last report" */
   #card-close { position: absolute; top: 4px; right: 6px; border: 0; background: none; color: #a6adc8; font-size: 16px; cursor: pointer; }
   #card-close:hover, #card-close:focus-visible { color: #cdd6f4; }
+  #looks { position: absolute; padding: 10px; background: #11111b; border: 1px solid #45475a; border-radius: 6px; box-shadow: 0 4px 16px #0008; font-size: 12px; }
+  #looks[hidden] { display: none; }
+  #looks strong { display: block; margin-bottom: 6px; font-size: 13px; color: #f9e2af; }
+  #looks-grid { display: grid; grid-template-columns: repeat(7, 36px); gap: 4px; }
+  #looks-grid button { padding: 2px; border: 1px solid #45475a; border-radius: 4px; background: #f3ede1; cursor: pointer; line-height: 0; }
+  #looks-grid button[aria-pressed="true"] { border-color: #f9e2af; box-shadow: 0 0 0 1px #f9e2af; }
+  #looks-grid button:hover, #looks-grid button:focus-visible { border-color: #cdd6f4; outline: none; }
+  #looks-grid canvas { width: 30px; height: 52px; image-rendering: pixelated; }
+  #looks-reset { margin-top: 8px; padding: 3px 10px; border: 1px solid #45475a; border-radius: 4px; background: none; color: #a6adc8; font: inherit; cursor: pointer; }
+  #looks-reset:hover, #looks-reset:focus-visible { color: #cdd6f4; }
   #bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #313244; }
   #floors { flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; }
   #bar button { flex: none; padding: 3px 8px; border: 1px solid #45475a; border-radius: 4px; background: #11111b; color: #cdd6f4; font: 13px "Malgun Gothic", sans-serif; cursor: pointer; white-space: nowrap; }
@@ -91,6 +101,11 @@
 <div id="card" role="dialog" aria-label="Character info" hidden>
   <button id="card-close" aria-label="Close">×</button>
   <div id="card-body"></div>
+</div>
+<div id="looks" role="dialog" hidden>
+  <strong id="looks-title"></strong>
+  <div id="looks-grid"></div>
+  <button id="looks-reset"></button>
 </div>
 <script src="office.js"></script>
 <script src="app.js"></script>

@@ -151,5 +151,34 @@ bridge.onWindowFocus(focused => toOffice('focus', focused));
 // the first message can arrive before the office page has loaded: tell it again once it has
 frame.addEventListener('load', () => { const s = tabs.get(active)?.session; if (s) toOffice('session', s); });
 
-new ResizeObserver(() => { const t = tabs.get(active); if (t) { t.fit.fit(); bridge.resize(active, t.term.cols, t.term.rows); } }).observe(termsEl);
+// Refit once the size settles: every pty resize makes claude redraw its screen, so not on every frame of a drag.
+let refit;
+new ResizeObserver(() => {
+  clearTimeout(refit);
+  refit = setTimeout(() => { const t = tabs.get(active); if (t) { t.fit.fit(); bridge.resize(active, t.term.cols, t.term.rows); } }, 80);
+}).observe(termsEl);
+
+// The bar between the terminal and the office: drag it (or arrow keys on it) to share the width; double-click resets.
+const left = document.getElementById('left'), split = document.getElementById('split');
+split.setAttribute('aria-label', T('Resize the terminal and the office', '터미널과 사무실 크기 조절'));
+split.title = T('Drag to resize. Double-click resets it.', '끌어서 크기를 조절해요. 더블클릭하면 처음대로.');
+split.setAttribute('aria-valuemin', 20);
+split.setAttribute('aria-valuemax', 80);
+function setSplit(pct) {
+  pct = Math.min(80, Math.max(20, pct));
+  left.style.flexBasis = `${pct}%`;
+  split.setAttribute('aria-valuenow', Math.round(pct));
+  try { localStorage.setItem('split', pct); } catch {}
+}
+let savedSplit = 55;
+try { savedSplit = Number(localStorage.getItem('split')) || 55; } catch {}
+setSplit(savedSplit);
+split.addEventListener('pointerdown', e => { split.setPointerCapture(e.pointerId); document.body.classList.add('dragging'); });
+split.addEventListener('pointermove', e => { if (split.hasPointerCapture(e.pointerId)) setSplit((e.clientX / innerWidth) * 100); });
+split.addEventListener('lostpointercapture', () => { document.body.classList.remove('dragging'); tabs.get(active)?.term.focus(); });
+split.addEventListener('dblclick', () => setSplit(55));
+split.addEventListener('keydown', e => {
+  const step = { ArrowLeft: -2, ArrowRight: 2 }[e.key];
+  if (step) { e.preventDefault(); setSplit(parseFloat(left.style.flexBasis) + step); }
+});
 newTab(params.get('cwd'));

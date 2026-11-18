@@ -128,7 +128,7 @@ tabButtons.forEach(b => b.addEventListener('click', () => {
 
 function personRow(c) {
   const dot = el('span', 'dot');
-  dot.style.background = c.color;
+  dot.style.background = Office.colorOf(c);
   const late = lateOf(c);
   return el('li', '', dot, c.label + (c.task ? `: ${c.task}` : ''), el('span', 'st', ` — ${statusOf(c)}`), late ? el('span', 'late', late) : '');
 }
@@ -190,7 +190,7 @@ function renderPanel() {
   renderContext(s);
   const asks = cs.filter(c => c.perm && c.status === 'waiting'), people = cs.filter(c => c.kind === 'boss' || c.busy);
   const shown = view === 'tasks' ? tasks : view === 'files' ? files : view === 'reports' ? s.inbox.map(r => [r.at, r.text.length])
-    : view === 'log' ? [s.journal.length, s.journal.at(-1)?.at] : people.map(c => [c.id, c.label, c.task, c.color, statusOf(c), lateOf(c)]);
+    : view === 'log' ? [s.journal.length, s.journal.at(-1)?.at] : people.map(c => [c.id, c.label, c.task, Office.colorOf(c), statusOf(c), lateOf(c)]);
   // rebuilt only when something shown changes, so buttons stay put under the cursor
   const key = JSON.stringify([current, view, asks.map(c => c.perm.id), shown]);
   if (key === rosterKey) return;
@@ -315,6 +315,7 @@ fetch('art/art.json').then(r => r.json()).then(async art => {
     themes[name] = { room: await loadImg(t.room), people: t.people ? await loadImg(t.people) : people, standing: t.standing ? await loadImg(t.standing) : standing };
   }
   Office.useArt(art, { themes, bubbles, screens });
+  lookArt = { img: people, cell: art.cell, count: art.people.clothes.length }; // one look per row of people.png
   showTheme();
 }).catch(err => console.error('office art failed to load:', err.message));
 
@@ -385,6 +386,51 @@ canvas.addEventListener('click', ev => {
   if (c.kind === 'boss') toShell('focus-terminal');
 });
 document.getElementById('card-close').addEventListener('click', () => { selected = null; renderCard(); });
+
+// ---- right-click someone: pick their look (the boss, or whoever sits at that desk, on every floor) ----
+let lookArt = null, lookFor = null; // the people art once loaded; the 'boss' / 'deskN' key being changed
+let looks = {};
+try { looks = JSON.parse(localStorage.getItem('looks')) || {}; } catch {}
+Office.setLooks(looks);
+const looksBox = document.getElementById('looks');
+const looksGrid = document.getElementById('looks-grid');
+document.getElementById('looks-title').textContent = T('Change look', '모습 바꾸기');
+looksBox.setAttribute('aria-label', T('Change look', '모습 바꾸기'));
+const looksReset = document.getElementById('looks-reset');
+looksReset.textContent = T('Default', '기본 모습');
+function pickLook(row) {
+  if (row == null) delete looks[lookFor]; else looks[lookFor] = row;
+  Office.setLooks(looks);
+  try { localStorage.setItem('looks', JSON.stringify(looks)); } catch {}
+  closeLooks();
+  renderAll();
+}
+function closeLooks() { looksBox.hidden = true; lookFor = null; }
+looksReset.addEventListener('click', () => pickLook(null));
+canvas.addEventListener('contextmenu', ev => {
+  const c = Office.hit(office(), ev.offsetX, ev.offsetY), key = c && Office.lookKey(c);
+  if (!key || !lookArt) return; // temps keep their look; elsewhere the usual menu
+  ev.preventDefault();
+  lookFor = key;
+  c.petAt = Date.now();
+  const [w, h] = lookArt.cell;
+  looksGrid.replaceChildren(...Array.from({ length: lookArt.count }, (_, row) => {
+    const pic = document.createElement('canvas');
+    pic.width = w; pic.height = h;
+    pic.getContext('2d').drawImage(lookArt.img, 0, row * h, w, h, 0, 0, w, h); // the idle pose
+    const b = el('button', '', pic);
+    b.setAttribute('aria-label', T(`Look ${row + 1}`, `모습 ${row + 1}`));
+    b.setAttribute('aria-pressed', String(looks[key] === row));
+    b.addEventListener('click', () => pickLook(row));
+    return b;
+  }));
+  looksBox.hidden = false;
+  looksBox.style.left = Math.max(8, Math.min(ev.offsetX + 12, document.body.clientWidth - looksBox.offsetWidth - 8)) + 'px';
+  looksBox.style.top = Math.max(8, Math.min(canvas.offsetTop + ev.offsetY + 12, document.body.clientHeight - looksBox.offsetHeight - 8)) + 'px';
+  (looksGrid.querySelector('[aria-pressed="true"]') || looksGrid.firstChild).focus();
+});
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') closeLooks(); });
+document.addEventListener('pointerdown', ev => { if (!looksBox.contains(ev.target)) closeLooks(); });
 
 requestAnimationFrame(function frame(t) {
   Office.step(canvas, office(), t);

@@ -340,4 +340,19 @@ for (const c of Object.values(chars)) if (c.say?.text) assert.match(c.say.text, 
   assert.ok(!/[가-힣]/.test(text), 'no Korean in the English log');
 }
 
+{ // looks picked by right-click: per desk (and the boss), temps keep theirs; the list color follows the look
+  const s = Office.createState();
+  const boss = Object.values(s.chars).find(c => c.kind === 'boss'), staff = Object.values(s.chars).find(c => c.kind === 'staff' && c.desk === 3);
+  assert.equal(Office.lookKey(boss), 'boss');
+  assert.equal(Office.lookKey(staff), `desk${staff.desk}`);
+  assert.equal(Office.lookKey({ kind: 'temp', desk: -1 }), null);
+  Office.useArt({ people: { rows: { boss: 0, staff: [1, 2] }, clothes: ['#000', '#111', '#222', '#333'] } }, null);
+  assert.equal(Office.colorOf(staff), staff.color, 'no pick: its own color');
+  Office.setLooks({ [Office.lookKey(staff)]: 3 });
+  assert.equal(Office.colorOf(staff), '#333', 'picked: the look\'s clothes');
+  assert.equal(Office.colorOf(boss), boss.color, 'the boss is untouched');
+  Office.setLooks({});
+  Office.useArt(null, null);
+}
+
 console.log('office reducer ok');

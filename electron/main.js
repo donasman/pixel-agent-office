@@ -103,7 +103,7 @@ app.whenReady().then(async () => {
   office = await core.start(); // or attaches to the viewer already running
 
   win = new BrowserWindow({
-    width: 1400, height: 820, backgroundColor: '#1e1e2e', title: 'Agent Office',
+    width: 1400, height: 820, backgroundColor: '#1e1e2e', title: 'Agent Office', icon: path.join(__dirname, 'icon.png'),
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   // the office page lives in an iframe, so it can't tell whether this window has focus: tell it

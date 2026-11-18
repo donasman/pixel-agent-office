@@ -432,8 +432,17 @@
     }
   }
 
+  // Looks picked by right-clicking someone: 'boss' or 'desk3' -> a row of the people art, the same on every floor.
+  // Temps stand, drawn from other art, so they keep theirs.
+  let looks = {};
+  const lookKey = c => (c.kind === 'boss' ? 'boss' : c.kind === 'staff' ? `desk${c.desk}` : null);
+  function setLooks(map) { looks = { ...map }; }
+  // the person's color in lists: the picked look's clothes
+  const colorOf = c => (art && looks[lookKey(c)] != null ? art.people.clothes[looks[lookKey(c)]] : c.color);
+
   function rowOf(c) {
     const rows = art.people.rows;
+    if (looks[lookKey(c)] != null) return looks[lookKey(c)];
     if (c.kind === 'boss') return rows[c.model] ?? rows.boss;
     return rows.staff[(c.desk - 1) % rows.staff.length];
   }
@@ -588,7 +597,7 @@
     }
   }
 
-  const Office = { createState, reduce, createBuilding, route, prune, floorStatus, stuckFor, STUCK_MS, windowOf, step, hit, setModel, useArt, setTheme, themes, plateText, setLang, T, statusText };
+  const Office = { createState, reduce, createBuilding, route, prune, floorStatus, stuckFor, STUCK_MS, windowOf, step, hit, setModel, useArt, setTheme, themes, plateText, setLang, T, statusText, lookKey, setLooks, colorOf };
   if (typeof module === 'object') module.exports = Office;
   else window.Office = Office;
 })();

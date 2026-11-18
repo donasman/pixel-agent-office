@@ -53,7 +53,7 @@ Git for Windows가 없는 Windows에서는 두 번째 명령 대신 `/plugin ins
 | Context compaction | A robot vacuum cleans up and the report pile is filed away |
 | Rate limit or overload | The lights go out |
 
-Click anyone to see their task, recent tools, work time and last report. Three office themes: day, late night and wood.
+Click anyone to see their task, recent tools, work time and last report. Right-click someone to pick their look from the 13 in the art (it stays with that desk, or the boss, on every floor; "Default" undoes it). Three office themes: day, late night and wood.
 
 ### Under the office
 
@@ -113,6 +113,7 @@ npm start
 
 It runs your own `claude` login, so it uses your subscription as usual. `npm start -- C:\Dev\my-project` skips the first folder question.
 
+- Drag the bar between the terminal and the office to share the width (or focus it and use ←/→); double-click it to reset. The width is remembered.
 - **+ New session** asks for a folder and runs another claude in a new tab. Each tab is its own floor: the office shows the floor of the tab in front, and clicking a floor's tab in the office brings its terminal tab to the front. Closing a tab (×) ends its claude.
 - **Stop** stops claude's turn (Esc; only sent while claude is working), **/compact** and **/clear** run those commands (whatever was half-typed is cleared first; /clear asks before it runs).
 - The claude it runs gets the to-do tools (`CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, unless you set it yourself) and the office's status line, so the whiteboard and the usage gauge work there out of the box.
