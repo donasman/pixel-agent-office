@@ -2,6 +2,12 @@
 const assert = require('node:assert');
 const Office = require('../public/office.js');
 
+// The office's words are English until the page says its language is Korean. The checks below read the Korean ones.
+assert.equal(Office.statusText('sleeping'), 'Asleep');
+assert.equal(Office.setLang('en-US'), false);
+assert.equal(Office.setLang('ko-KR'), true);
+assert.deepEqual([Office.statusText('sleeping'), Office.T('Allow', '허용')], ['꿀잠 중', '허용']);
+
 const s = Office.createState();
 const ev = (name, extra = {}) => Office.reduce(s, { session_id: 'S1', hook_event_name: name, ...extra }, 1000);
 const { chars } = s;
@@ -310,6 +316,28 @@ for (const c of Object.values(chars)) if (c.say?.text) assert.match(c.say.text, 
     assert.ok(log.includes(line), `work log has "${line}": ${log.join(' / ')}`);
   }
   assert.deepEqual(s.journal.map(j => j.at), s.journal.map(j => j.at).slice().sort((x, y) => x - y), 'the log is in time order');
+}
+
+// the same log in English: every word the reducer writes
+{
+  Office.setLang('en');
+  const s = Office.createState(), go = (name, extra = {}) => Office.reduce(s, { session_id: 'S1', hook_event_name: name, ...extra }, 1);
+  go('SessionStart', { source: 'compact' });
+  go('UserPromptSubmit');
+  go('PreToolUse', { tool_name: 'Agent', tool_use_id: 'a', tool_input: { description: 'look around' } });
+  go('SubagentStart', { agent_id: 'A', agent_type: 'Explore' });
+  go('PreToolUse', { agent_id: 'A', tool_name: 'SubagentHandback', tool_use_id: 'h' });
+  assert.equal(s.chars.desk1.tool, 'report');
+  go('SubagentStop', { agent_id: 'A' });
+  assert.equal(s.chars.desk1.lastReport, 'Done');
+  go('PermissionRequest', { tool_name: 'Bash', ask: 'npm i', _perm: 'p1' });
+  go('PermissionDone', { _perm: 'p1', behavior: 'deny' });
+  go('PostToolUse', { tool_name: 'TaskUpdate', tool_input: { taskId: '2' } });
+  go('PostToolUseFailure', { tool_name: 'Bash', error: 'exit 1' });
+  go('StopFailure');
+  const text = s.journal.map(j => j.text).join(' / ');
+  assert.equal(text, 'Continuing after compaction / New instruction / Started: look around / Report: Done / Approval needed: Bash npm i / Denied from the office / To-do #2: edited / Bash failed: exit 1 / Stopped: error');
+  assert.ok(!/[가-힣]/.test(text), 'no Korean in the English log');
 }
 
 console.log('office reducer ok');

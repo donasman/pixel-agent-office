@@ -7,6 +7,24 @@ const embedded = window.parent !== window;
 const toShell = (kind, value) => { if (embedded) window.parent.postMessage({ agentOffice: kind, value }, '*'); };
 const appSessions = new Set(); // the app's terminal tabs' claude sessions
 
+// ---- language: English unless the browser's language is Korean. The page's own labels are English; Korean replaces
+// them here (an attribute, or the text when none is named). Everything else picks with T(english, korean). ----
+const T = Office.T;
+const korean = Office.setLang(navigator.language);
+const LOCALE = korean ? 'ko-KR' : 'en-US';
+if (korean) {
+  document.documentElement.lang = 'ko';
+  for (const [sel, attr, text] of [
+    ['#floors', 'aria-label', '층 (claude 세션)'],
+    ['#follow', 'title', '일이 생긴 층으로 자동 이동'], ['#follow', '', '자동 이동'],
+    ['#notify', 'title', '이 창을 안 보고 있을 때 승인 대기, 작업 완료, 멈춤을 윈도우 알림으로 알려 줘요'], ['#notify', '', '알림 켜기'],
+    ['#theme', 'title', '사무실 테마 바꾸기'], ['#theme', '', '주간'],
+    ['#mute', 'aria-label', '알림 소리 끄기'], ['#mute', 'title', '알림 소리 켜기/끄기'],
+    ['#office', 'aria-label', '에이전트 사무실'], ['#tabs', 'aria-label', '아래 목록'],
+    ['#card', 'aria-label', '캐릭터 정보'], ['#card-close', 'aria-label', '닫기'],
+  ]) { const n = document.querySelector(sel); if (attr) n.setAttribute(attr, text); else n.textContent = text; }
+}
+
 let building = Office.createBuilding();
 let current = null; // id of the floor on screen
 let selected = null; // id of the character whose info card is open
@@ -60,7 +78,7 @@ function renderFloors() {
     const tab = el('button', st.closed ? 'closed' : '', `${f.n}F ${f.project}`, mark);
     tab.setAttribute('role', 'tab');
     tab.setAttribute('aria-selected', String(f.id === current));
-    tab.title = st.closed ? '세션 종료됨' : st.waiting ? '승인 대기 중' : st.stuck ? '오래 안 끝나는 작업이 있음' : st.working ? '일하는 중' : '대기 중';
+    tab.title = st.closed ? T('Session ended', '세션 종료됨') : st.waiting ? T('Waiting for approval', '승인 대기 중') : st.stuck ? T('A tool has been running for a long time', '오래 안 끝나는 작업이 있음') : st.working ? T('Working', '일하는 중') : T('Idle', '대기 중');
     tab.addEventListener('click', () => pickFloor(f));
     return tab;
   }));
@@ -78,9 +96,9 @@ function pickFloor(f) {
 
 // ---- roster and info card (the floor on screen) ----
 const roster = document.getElementById('roster');
-const nameOf = c => (c.kind === 'boss' ? 'Claude' : c.label || `직원 ${c.desk}`);
-const statusOf = c => Office.STATUS_KO[c.status] + (c.tool ? ` (${c.tool})` : '');
-const lateOf = c => { const ms = Office.stuckFor(c, Date.now()); return ms ? ` ⚠ ${Math.floor(ms / 60000)}분째 안 끝남` : ''; };
+const nameOf = c => (c.kind === 'boss' ? 'Claude' : c.label || `${T('Staff', '직원')} ${c.desk}`);
+const statusOf = c => Office.statusText(c.status) + (c.tool ? ` (${c.tool})` : '');
+const lateOf = c => { const min = Math.floor(Office.stuckFor(c, Date.now()) / 60000); return min ? T(` ⚠ running for ${min} min`, ` ⚠ ${min}분째 안 끝남`) : ''; };
 // A permission prompt the office can answer: what it's about, with allow / deny.
 const firstShown = new Map(); // permission id -> when its buttons appeared: floors can switch under the cursor, so a click right after is ignored
 function askRow(c) {
@@ -95,7 +113,7 @@ function askRow(c) {
       .then(r => { if (!r.ok && r.status !== 409) retry(); }, retry); // 409: answered already; the PermissionDone event clears the row
   };
   const btn = (label, cls) => { const b = el('button', cls, label); b.addEventListener('click', answer(cls)); return b; };
-  return el('li', 'ask', el('span', 'q', '승인 요청'), ` ${nameOf(c)}: ${tool} `, ask ? el('code', '', ask) : '', btn('허용', 'allow'), btn('거부', 'deny'));
+  return el('li', 'ask', el('span', 'q', T('Approval needed', '승인 요청')), ` ${nameOf(c)}: ${tool} `, ask ? el('code', '', ask) : '', btn(T('Allow', '허용'), 'allow'), btn(T('Deny', '거부'), 'deny'));
 }
 
 // ---- the list under the office: people, claude's to-do list, files edited (plus any permission prompt, always) ----
@@ -120,23 +138,25 @@ function taskRow(t) {
   li.title = t.subject;
   return li;
 }
-const fileRow = ([file, f]) => el('li', 'file', el('code', '', file), el('span', 'st', ` — ${f.by.join(', ')} · ${f.n}번`));
+const fileRow = ([file, f]) => el('li', 'file', el('code', '', file), el('span', 'st', ` — ${f.by.join(', ')} · ${f.n}${T('×', '번')}`));
 const hint = text => el('li', 'hint', text);
-const clock = at => new Date(at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+const clock = at => new Date(at).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 function copyButton(text) {
-  const copy = el('button', 'copy', '복사');
-  copy.addEventListener('click', () => navigator.clipboard?.writeText(text).then(() => { copy.textContent = '복사됨'; }, () => { copy.textContent = '복사 안 됨'; }));
+  const copy = el('button', 'copy', T('Copy', '복사'));
+  copy.addEventListener('click', () => navigator.clipboard?.writeText(text).then(() => { copy.textContent = T('Copied', '복사됨'); }, () => { copy.textContent = T("Couldn't copy", '복사 안 됨'); }));
   return copy;
 }
 function reportRow(r) {
-  const body = r.text ? el('pre', '', r.text) : el('p', 'hint', '보고 내용이 오지 않았어요.');
+  const body = r.text ? el('pre', '', r.text) : el('p', 'hint', T('No report text arrived.', '보고 내용이 오지 않았어요.'));
   return el('li', 'report', el('details', '', el('summary', '', el('span', 'when', clock(r.at)), ` ${r.who}${r.task ? ` · ${r.task}` : ''}`), body, r.text ? copyButton(r.text) : ''));
 }
 // No claude session has shown up yet: how to connect claude to the office (the desktop app passes the hooks itself)
 const setupRows = () => [
-  hint('아직 claude 소식이 없어요. claude를 쓰기 시작하면 여기 층이 생겨요. 계속 비어 있으면 Claude Code에서 아래 두 명령으로 플러그인을 설치하고 claude를 다시 시작하세요.'),
+  hint(T('No word from claude yet. Its floor appears here once you start using claude. If this stays empty, install the plugin with the two commands below in Claude Code, then restart claude.',
+    '아직 claude 소식이 없어요. claude를 쓰기 시작하면 여기 층이 생겨요. 계속 비어 있으면 Claude Code에서 아래 두 명령으로 플러그인을 설치하고 claude를 다시 시작하세요.')),
   ...['/plugin marketplace add donasman/pixel-agent-office', '/plugin install agent-office@agent-office'].map(cmd => el('li', 'setup', el('code', '', cmd), copyButton(cmd))),
-  hint('Git for Windows가 없는 Windows에서는 두 번째 명령 대신 /plugin install agent-office-powershell@agent-office'),
+  hint(T('On Windows without Git for Windows, run this instead of the second command: /plugin install agent-office-powershell@agent-office',
+    'Git for Windows가 없는 Windows에서는 두 번째 명령 대신 /plugin install agent-office-powershell@agent-office')),
 ];
 const logRow = j => el('li', 'log', el('span', 'when', clock(j.at)), el('span', 'who', ` ${j.who} `), j.text);
 
@@ -148,8 +168,8 @@ function renderContext(s) {
   const win = Math.max(Office.windowOf(s.modelId), s.context), pct = Math.round((s.context / win) * 100);
   const fill = el('span', 'fill');
   Object.assign(fill.style, { width: `${pct}%`, background: pct >= 80 ? '#f38ba8' : pct >= 50 ? '#f9e2af' : '#a6e3a1' });
-  ctxEl.title = `Claude(보스)의 컨텍스트: ${tokens(s.context)} / ${tokens(win)} 토큰`;
-  ctxEl.replaceChildren(`컨텍스트 ${pct}%`, el('span', 'bar', fill));
+  ctxEl.title = T(`Claude's (the boss's) context: ${tokens(s.context)} / ${tokens(win)} tokens`, `Claude(보스)의 컨텍스트: ${tokens(s.context)} / ${tokens(win)} 토큰`);
+  ctxEl.replaceChildren(`${T('Context', '컨텍스트')} ${pct}%`, el('span', 'bar', fill));
 }
 
 let rosterKey = '';
@@ -160,7 +180,8 @@ function renderPanel() {
   // the to-do tab only while claude keeps a list: Claude Code gives current models TaskCreate only with
   // CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (older models, like Opus 4.7, by default)
   const view = tab === 'tasks' && !tasks.length ? 'people' : tab;
-  const label = { people: '직원', tasks: `할 일 ${done}/${tasks.length}`, files: files.length ? `파일 ${files.length}` : '파일', reports: s.inbox.length ? `보고서 ${s.inbox.length}` : '보고서', log: '일지' };
+  const count = (name, n) => (n ? `${name} ${n}` : name);
+  const label = { people: T('Staff', '직원'), tasks: `${T('To-do', '할 일')} ${done}/${tasks.length}`, files: count(T('Files', '파일'), files.length), reports: count(T('Reports', '보고서'), s.inbox.length), log: T('Log', '일지') };
   for (const b of tabButtons) {
     b.textContent = label[b.dataset.tab];
     b.hidden = b.dataset.tab === 'tasks' && !tasks.length;
@@ -176,30 +197,32 @@ function renderPanel() {
   rosterKey = key;
   const rows = !floor() && !embedded ? setupRows()
     : view === 'tasks' ? tasks.map(taskRow)
-    : view === 'files' ? [...files.map(fileRow), hint(files.length ? 'Edit/Write로 고친 파일만 보여요. 명령(Bash)으로 바꾼 파일은 빠져요.' : 'claude가 Edit/Write로 고친 파일이 여기 모여요.')]
-    : view === 'reports' ? (s.inbox.length ? s.inbox.map(reportRow) : [hint('서브에이전트와 팀원이 일을 마치고 보낸 보고서가 여기 모여요. 누르면 전문이 보여요.')])
-    : view === 'log' ? (s.journal.length ? s.journal.slice().reverse().map(logRow) : [hint('이 층에서 일어난 일이 시간순으로 쌓여요.')])
+    : view === 'files' ? [...files.map(fileRow), hint(files.length
+      ? T('Only files edited with Edit/Write are listed. Files changed by commands (Bash) are not.', 'Edit/Write로 고친 파일만 보여요. 명령(Bash)으로 바꾼 파일은 빠져요.')
+      : T('Files claude edits with Edit/Write are listed here.', 'claude가 Edit/Write로 고친 파일이 여기 모여요.'))]
+    : view === 'reports' ? (s.inbox.length ? s.inbox.map(reportRow) : [hint(T('Reports that subagents and teammates send back when they finish are collected here. Click one to read it in full.', '서브에이전트와 팀원이 일을 마치고 보낸 보고서가 여기 모여요. 누르면 전문이 보여요.'))])
+    : view === 'log' ? (s.journal.length ? s.journal.slice().reverse().map(logRow) : [hint(T('What happens on this floor is logged here, in order.', '이 층에서 일어난 일이 시간순으로 쌓여요.'))])
     : people.map(personRow);
   roster.replaceChildren(...asks.map(askRow), ...rows);
 }
 
 const card = document.getElementById('card');
 const cardBody = document.getElementById('card-body');
-const mmss = ms => `${Math.floor(ms / 60000)}분 ${Math.floor(ms / 1000) % 60}초`;
+const mmss = ms => { const m = Math.floor(ms / 60000), sec = Math.floor(ms / 1000) % 60; return T(`${m}m ${sec}s`, `${m}분 ${sec}초`); };
 function renderCard() {
   const s = office(), c = selected && s.chars[selected];
   card.hidden = !c;
   if (!c) return;
   const rows = [
-    ['상태', statusOf(c) + lateOf(c)],
-    ['맡은 일', c.task || '-'],
-    ['최근 도구', c.history.join(' → ') || '-'],
-    ['이번 근무', c.status !== 'sleeping' && c.since ? mmss(Date.now() - c.since) : '-'],
+    [T('Status', '상태'), statusOf(c) + lateOf(c)],
+    [T('Task', '맡은 일'), c.task || '-'],
+    [T('Last tools', '최근 도구'), c.history.join(' → ') || '-'],
+    [T('Work time', '이번 근무'), c.status !== 'sleeping' && c.since ? mmss(Date.now() - c.since) : '-'],
   ];
-  if (c.kind === 'boss') rows.push(['모델', c.model || '?'], ['컨텍스트', s.context ? `${tokens(s.context)} 토큰` : '-'], ['받은 보고서', `${s.reports}장`]);
-  else rows.push(['받은 업무', `${c.jobs}건`], ['마지막 보고', c.lastReport || '-']);
+  if (c.kind === 'boss') rows.push([T('Model', '모델'), c.model || '?'], [T('Context', '컨텍스트'), s.context ? `${tokens(s.context)} ${T('tokens', '토큰')}` : '-'], [T('Reports', '받은 보고서'), `${s.reports}${T('', '장')}`]);
+  else rows.push([T('Jobs', '받은 업무'), `${c.jobs}${T('', '건')}`], [T('Last report', '마지막 보고'), c.lastReport || '-']);
   cardBody.replaceChildren(
-    el('strong', '', c.kind === 'boss' ? 'Claude (보스)' : c.label || `직원 ${c.desk}`),
+    el('strong', '', c.kind === 'boss' ? T('Claude (boss)', 'Claude (보스)') : nameOf(c)),
     ...rows.map(([k, v]) => el('div', '', el('span', 'k', k), v)));
 }
 
@@ -266,17 +289,18 @@ function warnStuck() {
       if (!late || late > Office.STUCK_MS + 120000 || c.warnedAt === c.seenAt) continue;
       c.warnedAt = c.seenAt;
       notify([520]);
-      toast(f, `${Math.floor(late / 60000)}분째 안 끝나는 작업`, `${nameOf(c)}: ${statusOf(c)} — 멈추지 않았는지 확인해 보세요`);
+      const min = Math.floor(late / 60000);
+      toast(f, T(`A tool has been running for ${min} min`, `${min}분째 안 끝나는 작업`), `${nameOf(c)}: ${statusOf(c)} — ${T("check that it hasn't hung", '멈추지 않았는지 확인해 보세요')}`);
     }
   }
 }
 
 // ---- the office's art, from the pixel-art design (tools/import-design.js); until it loads the canvas stays plain ----
-const THEME_KO = { day: '주간', night: '야근', wood: '우드' };
+const THEME = { day: ['Day', '주간'], night: ['Late night', '야근'], wood: ['Wood', '우드'] };
 const themeBtn = document.getElementById('theme');
 let themeName = 'day';
 try { themeName = localStorage.getItem('theme') || 'day'; } catch {}
-const showTheme = () => { themeName = Office.setTheme(themeName); themeBtn.textContent = THEME_KO[themeName] || themeName; };
+const showTheme = () => { themeName = Office.setTheme(themeName); themeBtn.textContent = THEME[themeName] ? T(...THEME[themeName]) : themeName; };
 themeBtn.addEventListener('click', () => {
   const list = Office.themes();
   themeName = list[(list.indexOf(themeName) + 1) % list.length] || 'day';
@@ -306,24 +330,25 @@ function apply(e) {
   const ev = e.hook_event_name, c = f.state.chars[f.state.who[e.agent_id || e.session_id]];
   if (ev === 'PermissionRequest') { // claude needs an answer, on whatever floor
     notify([880, 1320]);
-    const what = `${c ? nameOf(c) : 'Claude'}: ${e.tool_name || ''} ${lineOf(e.ask)}${e._perm ? ' — 사무실에서 허용/거부할 수 있어요' : ''}`;
-    setTimeout(() => { if (c?.status === 'waiting' && !f.closedAt) toast(f, '승인 대기', what); }, 5000); // answered in the terminal by then: no toast
+    const what = `${c ? nameOf(c) : 'Claude'}: ${e.tool_name || ''} ${lineOf(e.ask)}${e._perm ? T(' — you can allow or deny it from the office', ' — 사무실에서 허용/거부할 수 있어요') : ''}`;
+    setTimeout(() => { if (c?.status === 'waiting' && !f.closedAt) toast(f, T('Waiting for approval', '승인 대기'), what); }, 5000); // answered in the terminal by then: no toast
   } else if (ev === 'Stop' && !appFocused) { // done while you were elsewhere
     notify([660]);
-    toast(f, '작업 완료', lineOf(e.last_assistant_message) || 'Claude가 다음 지시를 기다려요');
-  } else if (ev === 'StopFailure') toast(f, '작업 중단', e.error || '오류');
+    toast(f, T('Finished', '작업 완료'), lineOf(e.last_assistant_message) || T('Claude is waiting for your next instruction', 'Claude가 다음 지시를 기다려요'));
+  } else if (ev === 'StopFailure') toast(f, T('Stopped', '작업 중단'), e.error || T('error', '오류'));
 }
 
 // ---- subscription usage (5-hour and weekly windows), from claude's status line (core/statusline.js) ----
 const usageEl = document.getElementById('usage');
 function renderUsage(u) {
-  const parts = [['5시간', u?.five], ['주간', u?.week]].filter(([, w]) => w);
+  const parts = [[T('5h', '5시간'), u?.five], [T('Week', '주간'), u?.week]].filter(([, w]) => w);
   usageEl.hidden = !parts.length;
   usageEl.replaceChildren(...parts.map(([name, w]) => el('span', w.pct >= 80 ? 'hot' : w.pct >= 50 ? 'warm' : '', `${name} ${w.pct}%`)));
-  const when = t => new Date(t * 1000).toLocaleString('ko-KR', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-  usageEl.title = '구독 사용량. ' + parts.map(([name, w]) => `${name}: ${w.pct}% 사용${w.resets ? `, ${when(w.resets)} 초기화` : ''}`).join(' / ');
+  const when = t => new Date(t * 1000).toLocaleString(LOCALE, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  usageEl.title = T('Subscription usage. ', '구독 사용량. ') + parts.map(([name, w]) => `${name}: ${w.pct}% ${T('used', '사용')}${w.resets ? T(`, resets ${when(w.resets)}`, `, ${when(w.resets)} 초기화`) : ''}`).join(' / ');
 }
 
+renderAll(); // the tabs' words in the right language from the first paint
 const events = new EventSource('/stream');
 events.onopen = () => { building = Office.createBuilding(); current = null; renderAll(); }; // the server replays its history on every (re)connect
 events.onmessage = m => { try { apply(JSON.parse(m.data)); } catch (err) { console.error(err); } };

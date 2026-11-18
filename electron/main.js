@@ -9,6 +9,8 @@ const os = require('os');
 const path = require('path');
 const pty = require('node-pty');
 const core = require('../core/server');
+// English unless the app's language is Korean, like the pages (the locale is known once the app is ready)
+const T = (en, ko) => (/^ko\b/i.test(app.getLocale()) ? ko : en);
 
 // The plugin's own hooks, passed with --settings so the claude started here reports even without the plugin installed.
 // Without Git Bash, claude runs hooks in PowerShell, so that machine gets the PowerShell variant.
@@ -86,7 +88,7 @@ ipcMain.on('pty-write', (_, id, d) => terms.get(id)?.pty?.write(d));
 ipcMain.on('pty-resize', (_, id, cols, rows) => terms.get(id)?.pty?.resize(cols, rows));
 ipcMain.on('close-tab', (_, id) => { killClaude(id); terms.delete(id); });
 ipcMain.handle('pick-folder', async (_, defaultPath) => {
-  const r = await dialog.showOpenDialog(win, { title: '새 세션: Claude를 실행할 프로젝트 폴더', defaultPath, properties: ['openDirectory'] });
+  const r = await dialog.showOpenDialog(win, { title: T('New session: the project folder to run Claude in', '새 세션: Claude를 실행할 프로젝트 폴더'), defaultPath, properties: ['openDirectory'] });
   return r.canceled ? null : r.filePaths[0];
 });
 ipcMain.on('flash', () => { if (win && !win.isFocused()) win.flashFrame(true); }); // taskbar blink when claude needs you
@@ -95,7 +97,7 @@ ipcMain.on('raise', () => { if (!win) return; if (win.isMinimized()) win.restore
 app.whenReady().then(async () => {
   let cwd = process.argv[2];
   if (!cwd) {
-    const r = await dialog.showOpenDialog({ title: 'Claude를 실행할 프로젝트 폴더', properties: ['openDirectory'] });
+    const r = await dialog.showOpenDialog({ title: T('The project folder to run Claude in', 'Claude를 실행할 프로젝트 폴더'), properties: ['openDirectory'] });
     cwd = r.canceled ? os.homedir() : r.filePaths[0];
   }
   office = await core.start(); // or attaches to the viewer already running

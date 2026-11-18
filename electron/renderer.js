@@ -8,6 +8,10 @@ const toOffice = (kind, value) => frame.contentWindow?.postMessage({ agentOffice
 
 const tabsEl = document.getElementById('tabs');
 const termsEl = document.getElementById('terms');
+// English unless the app's language is Korean: the same test the office page in the iframe makes
+const korean = /^ko\b/i.test(navigator.language);
+const T = (en, ko) => (korean ? ko : en);
+if (korean) { document.documentElement.lang = 'ko'; tabsEl.setAttribute('aria-label', 'claude 세션'); frame.title = '에이전트 사무실'; }
 const tabs = new Map(); // id -> { term, fit, el, cwd, session, alive }
 let active = null, nextId = 1;
 const folderName = p => p.split(/[\\/]/).filter(Boolean).pop() || p;
@@ -24,13 +28,13 @@ function renderTabs() {
     tab.append(name);
     if (tabs.size > 1) {
       const x = button('close', '×', () => closeTab(id));
-      x.setAttribute('aria-label', `${i + 1}번 탭 닫기 (claude 종료)`);
+      x.setAttribute('aria-label', T(`Close tab ${i + 1} (ends its claude)`, `${i + 1}번 탭 닫기 (claude 종료)`));
       tab.append(x);
     }
     return tab;
   });
-  const add = button('add', '+ 새 세션', newSession);
-  add.title = '폴더를 골라 claude를 하나 더 실행해요. 사무실에 층이 하나 생겨요.';
+  const add = button('add', T('+ New session', '+ 새 세션'), newSession);
+  add.title = T('Pick a folder and run another claude there. The office gets one more floor.', '폴더를 골라 claude를 하나 더 실행해요. 사무실에 층이 하나 생겨요.');
   const quick = document.createElement('div');
   quick.className = 'quick';
   quick.append(...QUICK.map(([text, title, run]) => { const b = button('', text, run); b.title = title; return b; }));
@@ -60,9 +64,9 @@ function working(t) {
   return false;
 }
 const QUICK = [
-  ['중단', 'claude가 하던 일을 멈춰요 (Esc). 일하는 중일 때만 보내요.', () => { const t = tabs.get(active); if (t?.alive && working(t)) bridge.write(active, '\x1b'); t?.term.focus(); }],
-  ['/compact', '대화를 요약해서 컨텍스트를 줄여요', () => command('/compact')],
-  ['/clear', '대화를 지우고 새로 시작해요. 사무실 층은 그대로예요.', () => { if (confirm('이 탭의 대화를 지우고 새로 시작할까요? (/clear)')) command('/clear'); else tabs.get(active)?.term.focus(); }],
+  [T('Stop', '중단'), T("Stops claude's turn (Esc). Only sent while claude is working.", 'claude가 하던 일을 멈춰요 (Esc). 일하는 중일 때만 보내요.'), () => { const t = tabs.get(active); if (t?.alive && working(t)) bridge.write(active, '\x1b'); t?.term.focus(); }],
+  ['/compact', T('Summarizes the conversation to free up context', '대화를 요약해서 컨텍스트를 줄여요'), () => command('/compact')],
+  ['/clear', T('Clears the conversation and starts over. The office floor stays.', '대화를 지우고 새로 시작해요. 사무실 층은 그대로예요.'), () => { if (confirm(T("Clear this tab's conversation and start over? (/clear)", '이 탭의 대화를 지우고 새로 시작할까요? (/clear)'))) command('/clear'); else tabs.get(active)?.term.focus(); }],
 ];
 
 function show(id) {
@@ -130,7 +134,7 @@ bridge.onExit(id => {
   const t = tabs.get(id);
   if (!t) return;
   t.alive = false;
-  t.term.write('\r\n\x1b[90m[claude 종료됨 — 아무 키나 누르면 다시 시작]\x1b[0m\r\n');
+  t.term.write(`\r\n\x1b[90m[${T('claude ended — press any key to start it again', 'claude 종료됨 — 아무 키나 누르면 다시 시작')}]\x1b[0m\r\n`);
 });
 
 window.addEventListener('message', m => {

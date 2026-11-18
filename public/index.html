@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -41,7 +41,7 @@
   #card { position: absolute; min-width: 180px; max-width: 280px; padding: 10px 12px; background: #11111b; border: 1px solid #45475a; border-radius: 6px; box-shadow: 0 4px 16px #0008; font-size: 12px; line-height: 1.6; }
   #card[hidden] { display: none; }
   #card strong { display: block; margin-bottom: 4px; font-size: 13px; color: #f9e2af; }
-  #card .k { display: inline-block; width: 64px; color: #a6adc8; }
+  #card .k { display: inline-block; width: 76px; color: #a6adc8; } /* fits "Last report" */
   #card-close { position: absolute; top: 4px; right: 6px; border: 0; background: none; color: #a6adc8; font-size: 16px; cursor: pointer; }
   #card-close:hover, #card-close:focus-visible { color: #cdd6f4; }
   #bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #313244; }
@@ -67,28 +67,29 @@
 </style>
 </head>
 <body>
+<!-- The words here are English; app.js puts Korean in their place when the browser's language is Korean. -->
 <div id="bar">
-  <div id="floors" role="tablist" aria-label="층 (claude 세션)"></div>
-  <button id="follow" aria-pressed="true" title="일이 생긴 층으로 자동 이동">자동 이동</button>
+  <div id="floors" role="tablist" aria-label="Floors (claude sessions)"></div>
+  <button id="follow" aria-pressed="true" title="Move to the floor where something happens">Follow</button>
   <span id="usage" hidden></span>
-  <button id="notify" title="이 창을 안 보고 있을 때 승인 대기, 작업 완료, 멈춤을 윈도우 알림으로 알려 줘요" hidden>알림 켜기</button>
-  <button id="theme" title="사무실 테마 바꾸기">주간</button>
-  <button id="mute" aria-label="알림 소리 끄기" aria-pressed="false" title="알림 소리 켜기/끄기">🔔</button>
+  <button id="notify" title="While this window isn't in front, desktop notifications tell you about permission prompts, finished work and stops" hidden>Turn on notifications</button>
+  <button id="theme" title="Change the office theme">Day</button>
+  <button id="mute" aria-label="Mute sounds" aria-pressed="false" title="Sounds on/off">🔔</button>
 </div>
-<canvas id="office" aria-label="에이전트 사무실"></canvas>
+<canvas id="office" aria-label="Agent office"></canvas>
 <div id="panel">
-  <div id="tabs" role="tablist" aria-label="아래 목록">
-    <button role="tab" data-tab="people">직원</button>
-    <button role="tab" data-tab="tasks">할 일</button>
-    <button role="tab" data-tab="files">파일</button>
-    <button role="tab" data-tab="reports">보고서</button>
-    <button role="tab" data-tab="log">일지</button>
+  <div id="tabs" role="tablist" aria-label="Lists">
+    <button role="tab" data-tab="people">Staff</button>
+    <button role="tab" data-tab="tasks">To-do</button>
+    <button role="tab" data-tab="files">Files</button>
+    <button role="tab" data-tab="reports">Reports</button>
+    <button role="tab" data-tab="log">Log</button>
     <span id="ctx" hidden></span>
   </div>
   <ul id="roster" aria-live="polite"></ul>
 </div>
-<div id="card" role="dialog" aria-label="캐릭터 정보" hidden>
-  <button id="card-close" aria-label="닫기">×</button>
+<div id="card" role="dialog" aria-label="Character info" hidden>
+  <button id="card-close" aria-label="Close">×</button>
   <div id="card-body"></div>
 </div>
 <script src="office.js"></script>

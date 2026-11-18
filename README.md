@@ -10,7 +10,7 @@ Watch your Claude Code agents work in a pixel-art office. The main agent is the 
 npx pixel-agent-office
 ```
 
-Node.js 18 or later. The first time, it offers to install the Claude Code plugin whose hooks tell the office what claude is doing: press Enter. Then use Claude Code as usual, in any terminal or IDE. The office opens in an app window (Edge or Chrome) or in your default browser. Close the window and the viewer stops. A claude that was already running before the plugin was installed shows up after you restart it.
+Node.js 18 or later. The first time, it offers to install the Claude Code plugin whose hooks tell the office what claude is doing: press Enter. Then use Claude Code as usual, in any terminal or IDE. The office opens in an app window (Edge or Chrome) or in your default browser. Close the window and the viewer stops. A claude that was already running before the plugin was installed shows up after you restart it. The office is in English, or in Korean when your browser's language is Korean.
 
 To install the plugin yourself instead, run this in Claude Code:
 
@@ -27,7 +27,7 @@ On Windows without Git for Windows, install `agent-office-powershell@agent-offic
 npx pixel-agent-office
 ```
 
-Node.js 18 이상이 필요합니다. 처음 실행하면 Claude Code 플러그인을 설치할지 물어봅니다. 플러그인이 claude가 하는 일을 사무실에 알려 주니 Enter를 누르세요. 그다음부터는 터미널이든 IDE든 평소처럼 Claude Code를 쓰면 됩니다. 사무실은 앱 창(Edge 또는 Chrome)이나 기본 브라우저로 열리고, 창을 닫으면 뷰어도 꺼집니다. 플러그인을 설치하기 전부터 켜져 있던 claude는 다시 시작해야 사무실에 나타납니다. 사무실 화면과 안내는 한국어로 나옵니다.
+Node.js 18 이상이 필요합니다. 처음 실행하면 Claude Code 플러그인을 설치할지 물어봅니다. 플러그인이 claude가 하는 일을 사무실에 알려 주니 Enter를 누르세요. 그다음부터는 터미널이든 IDE든 평소처럼 Claude Code를 쓰면 됩니다. 사무실은 앱 창(Edge 또는 Chrome)이나 기본 브라우저로 열리고, 창을 닫으면 뷰어도 꺼집니다. 플러그인을 설치하기 전부터 켜져 있던 claude는 다시 시작해야 사무실에 나타납니다. 브라우저 언어가 한국어면 사무실 화면도 한국어로, 아니면 영어로 나옵니다.
 
 플러그인을 직접 설치하려면 Claude Code에서 다음을 실행하세요.
 
@@ -46,7 +46,7 @@ Git for Windows가 없는 Windows에서는 두 번째 명령 대신 `/plugin ins
 | Edit / Write, Read / Grep, Bash | Typing, reading papers, a terminal on the monitor |
 | A subagent finishes | Its report flies to the boss's desk; the boss reads the first line |
 | Agent teams | Each teammate gets a desk on the lead's floor; given more work later, it wakes at the same desk |
-| Permission prompt | A "?" bubble, a chime, and 허용 / 거부 buttons under the office (see below) |
+| Permission prompt | A "?" bubble, a chime, and Allow / Deny buttons under the office (see below) |
 | A tool still running after 5 minutes | A "5MIN" bubble and a "!" on its floor's tab: a hung command, or claude closed mid-task |
 | A tool fails | Sweat and "OOPS"; three failures in a row make the monitor smoke |
 | `git commit` / tests pass | Confetti / the whole office claps |
@@ -57,16 +57,16 @@ Click anyone to see their task, recent tools, work time and last report. Three o
 
 ### Under the office
 
-- **직원**: who is working on what.
-- **파일**: the files edited this session (Edit/Write), newest first, with who edited them and how often. Changes made by commands (Bash) aren't listed.
-- **보고서**: every report subagents and teammates sent back, in full. Click one to open it; 복사 copies it.
-- **일지**: what happened on this floor, in order: instructions, tools used, reports, permission prompts, compactions.
-- **컨텍스트**: how full the main agent's context is, from its transcript (current models have a 1M-token window).
-- **할 일**: claude's to-do list (TaskCreate / TaskUpdate), also drawn as sticky notes on the whiteboard (to do / doing / done). It shows up only while claude keeps one. Claude Code gives the current models (Opus, Sonnet and Haiku 5.5, Fable) these tools only when `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is set; older models such as Opus 4.7 have them by default.
+- **Staff**: who is working on what.
+- **Files**: the files edited this session (Edit/Write), newest first, with who edited them and how often. Changes made by commands (Bash) aren't listed.
+- **Reports**: every report subagents and teammates sent back, in full. Click one to open it; Copy copies it.
+- **Log**: what happened on this floor, in order: instructions, tools used, reports, permission prompts, compactions.
+- **Context**: how full the main agent's context is, from its transcript (current models have a 1M-token window).
+- **To-do**: claude's to-do list (TaskCreate / TaskUpdate), also drawn as sticky notes on the whiteboard (to do / doing / done). It shows up only while claude keeps one. Claude Code gives the current models (Opus, Sonnet and Haiku 5.5, Fable) these tools only when `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is set; older models such as Opus 4.7 have them by default.
 
 ### Usage gauge
 
-At the top, `5시간 34% 주간 61%`: how much of your subscription's 5-hour and weekly limits is used, with the reset times on hover. Claude Code hands these numbers only to a status line, so the gauge needs the office's status line script. The desktop app sets it up for the claude it runs. Elsewhere, add this to `~/.claude/settings.json` (the office copies the script to `~/.agent-office/` whenever it starts):
+At the top, `5h 34% Week 61%`: how much of your subscription's 5-hour and weekly limits is used, with the reset times on hover. Claude Code hands these numbers only to a status line, so the gauge needs the office's status line script. The desktop app sets it up for the claude it runs. Elsewhere, add this to `~/.claude/settings.json` (the office copies the script to `~/.agent-office/` whenever it starts):
 
 ```json
 "statusLine": { "type": "command", "command": "node ~/.agent-office/statusline.js" }
@@ -76,13 +76,13 @@ It prints nothing itself. If you already have a status line, keep it by moving i
 
 ### Answer permission prompts from the office
 
-When claude asks before running a tool, the office shows what it wants to do (`승인 요청 Claude: Bash npm install …`) with 허용 (allow) and 거부 (deny). Claude's own prompt appears in the terminal at the same time, and whichever you answer first counts. 허용 means "Yes" for this one call; for "always allow", answer in the terminal. Only the office page itself can answer, and only while it is open.
+When claude asks before running a tool, the office shows what it wants to do (`Approval needed Claude: Bash npm install …`) with Allow and Deny. Claude's own prompt appears in the terminal at the same time, and whichever you answer first counts. Allow means "Yes" for this one call; for "always allow", answer in the terminal. Only the office page itself can answer, and only while it is open.
 
 ### Notifications
 
-Click 알림 켜기 once (the browser asks for permission). While the office window isn't the one in front, Windows notifications tell you, from any floor, when a permission prompt is still unanswered after 5 seconds, when claude has finished, when it stopped on an error, and when a tool has been running for 5 minutes. Clicking one brings up that floor. The desktop app blinks the taskbar instead.
+Click Turn on notifications once (the browser asks for permission). While the office window isn't the one in front, Windows notifications tell you, from any floor, when a permission prompt is still unanswered after 5 seconds, when claude has finished, when it stopped on an error, and when a tool has been running for 5 minutes. Clicking one brings up that floor. The desktop app blinks the taskbar instead.
 
-Running several claude sessions at once? Each gets its own floor, named after its folder (`1F readme`, `2F blog`). Tabs switch floors, and the view moves to a floor that needs you (a permission prompt) or comes alive while yours is quiet; turn that off with 자동 이동. When a session ends its floor closes, and restarting claude in that folder opens it again.
+Running several claude sessions at once? Each gets its own floor, named after its folder (`1F readme`, `2F blog`). Tabs switch floors, and the view moves to a floor that needs you (a permission prompt) or comes alive while yours is quiet; turn that off with Follow. When a session ends its floor closes, and restarting claude in that folder opens it again.
 
 The art lives in `public/art/`. It is cut out of the pixel-art design by `node tools/import-design.js` (inputs in `tools/design/`).
 
@@ -113,8 +113,8 @@ npm start
 
 It runs your own `claude` login, so it uses your subscription as usual. `npm start -- C:\Dev\my-project` skips the first folder question.
 
-- **+ 새 세션** asks for a folder and runs another claude in a new tab. Each tab is its own floor: the office shows the floor of the tab in front, and clicking a floor's tab in the office brings its terminal tab to the front. Closing a tab (×) ends its claude.
-- **중단** stops claude's turn (Esc; only sent while claude is working), **/compact** and **/clear** run those commands (whatever was half-typed is cleared first; /clear asks before it runs).
+- **+ New session** asks for a folder and runs another claude in a new tab. Each tab is its own floor: the office shows the floor of the tab in front, and clicking a floor's tab in the office brings its terminal tab to the front. Closing a tab (×) ends its claude.
+- **Stop** stops claude's turn (Esc; only sent while claude is working), **/compact** and **/clear** run those commands (whatever was half-typed is cleared first; /clear asks before it runs).
 - The claude it runs gets the to-do tools (`CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, unless you set it yourself) and the office's status line, so the whiteboard and the usage gauge work there out of the box.
 
 ## Uninstall

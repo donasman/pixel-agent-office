@@ -16,10 +16,17 @@
     SubagentHandback: 'typing', // a subagent writing up its report for the main agent
     SendMessage: 'typing', // agent teams: a message between the lead and a teammate
   };
-  const STATUS_KO = {
-    sleeping: '꿀잠 중', thinking: '생각 중', typing: '코드 작성', reading: '자료 조사', running: '명령 실행',
-    working: '작업 중', delegating: '업무 지시', waiting: '승인 대기',
+  // The office's words: English, or Korean once the page says so (app.js passes the browser's language). T picks when
+  // it is called, so setLang has to run before the first event.
+  let korean = false;
+  const setLang = lang => (korean = /^ko\b/i.test(String(lang || '')));
+  const T = (en, ko) => (korean ? ko : en);
+  const STATUS = { // [English, Korean]
+    sleeping: ['Asleep', '꿀잠 중'], thinking: ['Thinking', '생각 중'], typing: ['Writing code', '코드 작성'], reading: ['Reading', '자료 조사'],
+    running: ['Running a command', '명령 실행'], working: ['Working', '작업 중'], delegating: ['Delegating', '업무 지시'], waiting: ['Waiting for approval', '승인 대기'],
   };
+  const statusText = status => T(...STATUS[status]);
+  const noReport = () => T('Done', '완료'); // the card's last report when a subagent said nothing
   const TEST_CMD = /\b(npm|pnpm|yarn|bun)\b[^|&;]*\btest\b|\b(pytest|jest|vitest|mocha)\b|\b(cargo|go|dotnet|mvn|gradle|deno)\s+test\b/;
   const COMMIT_CMD = /\bgit\s+commit\b/;
   // clothing colours from the design (the roster's dots): the boss per model, then staff desks 1..8, then temps
@@ -54,7 +61,7 @@
   // A report (SubagentHandback) can arrive after its SubagentStop: file it with whoever wrote it.
   function lateReport(s, agentId, msg) {
     const c = s.chars[s.gone.get(agentId)], filed = s.inbox.find(r => r.agent === agentId);
-    if (msg && c && c.lastReport === '완료') c.lastReport = firstLine(msg);
+    if (msg && c && c.lastReport === noReport()) c.lastReport = firstLine(msg);
     if (msg && filed && !filed.text) filed.text = msg;
     return s;
   }
@@ -64,12 +71,12 @@
     s.journal.push({ at: now, who: c.kind === 'boss' ? 'Claude' : c.label, text: String(text).slice(0, 200) });
     if (s.journal.length > 300) s.journal.shift();
   }
-  const DONE_KO = { allow: '사무실에서 허용', deny: '사무실에서 거부', terminal: '터미널에서 답함' };
+  const ANSWERED = { allow: ['Allowed from the office', '사무실에서 허용'], deny: ['Denied from the office', '사무실에서 거부'], terminal: ['Answered in the terminal', '터미널에서 답함'] };
   const toolLine = e => {
     const ti = e.tool_input || {};
-    if (e.tool_name === 'SendMessage') return `메시지 → ${ti.to || '?'}: ${(ti.message || '').split('\n')[0]}`;
-    if (e.tool_name === 'TaskCreate') return `할 일 추가: ${ti.subject || ''}`;
-    if (e.tool_name === 'TaskUpdate') return `할 일 #${ti.taskId}: ${ti.status || '수정'}`;
+    if (e.tool_name === 'SendMessage') return `${T('Message', '메시지')} → ${ti.to || '?'}: ${(ti.message || '').split('\n')[0]}`;
+    if (e.tool_name === 'TaskCreate') return `${T('To-do added', '할 일 추가')}: ${ti.subject || ''}`;
+    if (e.tool_name === 'TaskUpdate') return `${T('To-do', '할 일')} #${ti.taskId}: ${ti.status || T('edited', '수정')}`;
     return `${e.tool_name} ${ti.command || e.file || ti.description || ''}`.trim();
   };
 
@@ -134,7 +141,7 @@
     const lines = String(msg || '').split('\n').map(l => l.trim()).filter(Boolean);
     const pick = lines.find(l => !l.startsWith('#')) || lines[0] || '';
     // strip emphasis and line markers only: a lone * is content (*.md)
-    const line = pick.replace(/\*\*|__|`/g, '').replace(/^(#+|>|[-*])\s+/, '').replace(/\s+/g, ' ').trim() || '완료';
+    const line = pick.replace(/\*\*|__|`/g, '').replace(/^(#+|>|[-*])\s+/, '').replace(/\s+/g, ' ').trim() || noReport();
     return line.length > 40 ? line.slice(0, 39) + '…' : line;
   }
 
@@ -189,31 +196,31 @@
     switch (ev) {
       case 'SessionStart':
         if (c.kind !== 'boss') wake(c, 'thinking', now);
-        note(s, c, { resume: '세션 이어서 시작', clear: '/clear: 새 대화' }[e.source] || (e.source === 'compact' ? '압축 후 계속' : '세션 시작'), now);
+        note(s, c, { resume: T('Session resumed', '세션 이어서 시작'), clear: T('/clear: new conversation', '/clear: 새 대화'), compact: T('Continuing after compaction', '압축 후 계속') }[e.source] || T('Session started', '세션 시작'), now);
         break;
       case 'SubagentStart': // a teammate given more work (SendMessage) has no Agent call: its task is the lead's message
         c.task = takeTask(s, e.agent_id) || s.sent[e.agent_type] || '';
         wake(c, 'thinking', now);
-        note(s, c, `일 시작: ${c.task || '-'}`, now);
+        note(s, c, `${T('Started', '일 시작')}: ${c.task || '-'}`, now);
         break;
-      case 'UserPromptSubmit': wake(c, 'thinking', now); note(s, c, '새 지시를 받음', now); break;
+      case 'UserPromptSubmit': wake(c, 'thinking', now); note(s, c, T('New instruction', '새 지시를 받음'), now); break;
       case 'PreToolUse':
         c.history = [...c.history, e.tool_name].slice(-5);
         if (e.tool_name === 'SendMessage' && c.kind === 'boss' && e.tool_input?.to) s.sent[e.tool_input.to] = (e.tool_input.message || '').split('\n')[0].slice(0, 200);
         if (s.doneTools.has(e.tool_use_id)) break; // arrived after its PostToolUse: the tool is already done
         if (TOOL_STATUS[e.tool_name] === 'delegating') s.pendingTasks.push(e.tool_input?.description || '');
         wake(c, TOOL_STATUS[e.tool_name] || 'working', now);
-        c.tool = e.tool_name === 'SubagentHandback' ? '보고서' : e.tool_name;
+        c.tool = e.tool_name === 'SubagentHandback' ? T('report', '보고서') : e.tool_name;
         break;
       case 'PermissionRequest': // _perm: the office can answer it (the server is holding the hook)
         wake(c, 'waiting', now);
         c.perm = e._perm ? { id: e._perm, tool: e.tool_name || '', ask: e.ask || '' } : null;
-        note(s, c, `승인 요청: ${e.tool_name || ''} ${e.ask || ''}`, now);
+        note(s, c, `${T('Approval needed', '승인 요청')}: ${e.tool_name || ''} ${e.ask || ''}`, now);
         break;
       case 'PermissionDone': // answered (here or in the terminal), or no longer answerable from here
         if (c.perm?.id !== e._perm) break;
         c.perm = null;
-        if (DONE_KO[e.behavior]) note(s, c, DONE_KO[e.behavior], now);
+        if (ANSWERED[e.behavior]) note(s, c, T(...ANSWERED[e.behavior]), now);
         if (c.status === 'waiting' && e.behavior === 'allow') c.status = TOOL_STATUS[c.tool] || 'working';
         else if (c.status === 'waiting' && e.behavior === 'deny') c.status = 'thinking';
         break;
@@ -232,7 +239,7 @@
         markDone(s, e.tool_use_id);
         if (c.status !== 'sleeping') c.status = 'thinking';
         c.tool = null;
-        note(s, c, `${e.tool_name} ${e.is_interrupt ? '중단 (Esc)' : `실패${e.error ? ': ' + e.error : ''}`}`, now);
+        note(s, c, `${e.tool_name} ${e.is_interrupt ? T('interrupted (Esc)', '중단 (Esc)') : `${T('failed', '실패')}${e.error ? ': ' + e.error : ''}`}`, now);
         if (e.is_interrupt) break; // the user pressed Esc: not the agent's mistake
         c.oopsAt = now;
         c.failStreak++;
@@ -242,11 +249,11 @@
         if (e.notification_type === 'permission_prompt' || /permission/i.test(e.message || '')) wake(c, 'waiting', now);
         else c.status = 'sleeping';
         break;
-      case 'Stop': c.status = 'sleeping'; c.tool = null; note(s, c, '작업 끝', now); break;
-      case 'StopFailure': s.lights = { reason: e.error || 'unknown' }; c.status = 'sleeping'; c.tool = null; note(s, c, `멈춤: ${e.error || '오류'}`, now); break;
-      case 'PreCompact': s.cleaning = now; say(s.chars.boss, 'TIDY', now, { ms: 120000 }); note(s, c, '컨텍스트 압축 시작', now); break;
+      case 'Stop': c.status = 'sleeping'; c.tool = null; note(s, c, T('Finished', '작업 끝'), now); break;
+      case 'StopFailure': s.lights = { reason: e.error || 'unknown' }; c.status = 'sleeping'; c.tool = null; note(s, c, `${T('Stopped', '멈춤')}: ${e.error || T('error', '오류')}`, now); break;
+      case 'PreCompact': s.cleaning = now; say(s.chars.boss, 'TIDY', now, { ms: 120000 }); note(s, c, T('Context compaction started', '컨텍스트 압축 시작'), now); break;
       case 'PostCompact':
-        note(s, c, '컨텍스트 압축 끝', now);
+        note(s, c, T('Context compaction finished', '컨텍스트 압축 끝'), now);
         s.cleaning = 0;
         s.reports = 0; // the report pile gets filed away
         s.chars.boss.say = null;
@@ -258,7 +265,7 @@
         Object.assign(c, { status: 'sleeping', tool: null, busy: false, lastReport: report });
         s.inbox.unshift({ agent: e.agent_id, who: c.label, task: c.task, text, at: now });
         if (s.inbox.length > 50) s.inbox.pop();
-        note(s, c, `보고: ${report}`, now);
+        note(s, c, `${T('Report', '보고')}: ${report}`, now);
         delete s.who[e.agent_id];
         s.gone.set(e.agent_id, c.id);
         if (s.gone.size > 200) s.gone.delete(s.gone.keys().next().value);
@@ -581,7 +588,7 @@
     }
   }
 
-  const Office = { createState, reduce, createBuilding, route, prune, floorStatus, stuckFor, STUCK_MS, windowOf, step, hit, setModel, useArt, setTheme, themes, plateText, STATUS_KO };
+  const Office = { createState, reduce, createBuilding, route, prune, floorStatus, stuckFor, STUCK_MS, windowOf, step, hit, setModel, useArt, setTheme, themes, plateText, setLang, T, statusText };
   if (typeof module === 'object') module.exports = Office;
   else window.Office = Office;
 })();
