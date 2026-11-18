@@ -23,10 +23,10 @@ const wait = ms => new Promise(ok => setTimeout(ok, ms));
 const until = async (f, ms = 5000) => { for (let t = 0; t < ms; t += 50) { const v = f(); if (v) return v; await wait(50); } };
 const claude = args => spawnSync(`claude ${args}`, { shell: true, encoding: 'utf8', env });
 
-// The viewer in a real terminal: `script` gives it a pty (util-linux and BSD take different arguments).
+// The viewer in a real terminal: Python's pty module gives it one (macOS `script` can't, with a socket for stdin).
 function inTerminal(cmd) {
-  const args = process.platform === 'darwin' ? ['-q', '/dev/null', 'sh', '-c', cmd] : ['-qec', cmd, '/dev/null'];
-  const p = spawn('script', args, { env, stdio: ['pipe', 'pipe', 'inherit'] });
+  const pty = 'import os, pty, sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(["sh", "-c", sys.argv[1]])))';
+  const p = spawn('python3', ['-c', pty, cmd], { env, stdio: ['pipe', 'pipe', 'inherit'] });
   let out = '', asked = false;
   p.stdout.on('data', d => { out += d; if (!asked && /\[Y\/n\]/.test(out)) { asked = true; p.stdin.write('\r'); } });
   const timer = setTimeout(() => p.kill(), 180000);
