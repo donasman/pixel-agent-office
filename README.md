@@ -2,6 +2,8 @@
 
 Watch your Claude Code agents work in a pixel-art office. The main agent is the boss. Every subagent is a staff member who wakes up when given a task, works at their desk, sends a report flying to the boss when done, and goes back to sleep.
 
+![The office at work: the boss hands two subagents a task, they work at their desks and send back their reports, and a commit ends in confetti](site/demo.gif)
+
 **[Website](https://donasman.github.io/pixel-agent-office/)** · [한국어 설치 안내](#설치-한국어)
 
 ## Quick start
