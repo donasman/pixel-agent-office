@@ -102,6 +102,47 @@ function fromTranscript(e) {
   return { model: models.get(sid), context };
 }
 
+// The agents a session has defined, by name and description: the front matter of .claude/agents/*.md in its folder and
+// in the claude config dir (the folder's wins a shared name). They are the office's staff list.
+// shortcut: only the files directly in those two folders; agents in subfolders, from plugins or from --agents get
+// their name when they first work, as before. Read those too if people miss them.
+const AGENTS_MAX = 40;
+const head = (file, n) => { const fd = fs.openSync(file, 'r'); try { const b = Buffer.alloc(n); return b.toString('utf8', 0, fs.readSync(fd, b, 0, n, 0)); } finally { fs.closeSync(fd); } };
+function frontField(fm, key) {
+  const lines = fm.split(/\r?\n/), i = lines.findIndex(l => l.startsWith(key + ':'));
+  if (i < 0) return '';
+  let v = lines[i].slice(key.length + 1).trim();
+  if (/^[|>][+-]?$/.test(v)) { // a YAML block: the indented lines under the key
+    const end = lines.findIndex((l, j) => j > i && /^\S/.test(l));
+    v = lines.slice(i + 1, end < 0 ? undefined : end).join(' ');
+  }
+  return v.replace(/^(["'])(.*)\1$/, '$2').replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function agentsOf(folder) {
+  const found = new Map();
+  for (const dir of [typeof folder === 'string' && path.isAbsolute(folder) && path.join(folder, '.claude', 'agents'), path.join(CLAUDE_DIR, 'agents')]) {
+    let files = [];
+    try { if (dir) files = fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort(); } catch {} // none defined there
+    for (const f of files) {
+      if (found.size >= AGENTS_MAX) break;
+      let fm;
+      try { fm = /^---\r?\n([\s\S]*?)(?:\r?\n---|$)/.exec(head(path.join(dir, f), 8192).trimStart())?.[1]; } catch {}
+      const name = fm ? frontField(fm, 'name').slice(0, 60) : ''; // no name: a note someone left there, not an agent
+      if (name && !found.has(name)) found.set(name, frontField(fm, 'description').slice(0, 200));
+    }
+  }
+  return [...found].map(([name, description]) => ({ name, description }));
+}
+const folders = new Map(); // session_id -> the folder it started in (a later cwd can be somewhere claude cd'ed to)
+// Sent with a session's first event, its start and every prompt, so an agent added meanwhile shows up at the next prompt.
+function staffList(e) {
+  const sid = e.session_id, ev = e.hook_event_name;
+  if (e.agent_id || typeof sid !== 'string') return {};
+  const first = !folders.has(sid);
+  if (first || ev === 'SessionStart') folders.set(sid, e.cwd);
+  return first || ev === 'SessionStart' || ev === 'UserPromptSubmit' ? { agents: agentsOf(folders.get(sid)) } : {};
+}
+
 const sha1 = b => crypto.createHash('sha1').update(b).digest('hex');
 
 function isOffice(port) {
@@ -199,7 +240,7 @@ async function start({
         return p ? hold(p, res) : send(res, 204);
       }
       recent.set(key, now);
-      const out = { ...slim(e), ...fromTranscript(e), _t: now };
+      const out = { ...slim(e), ...fromTranscript(e), ...staffList(e), _t: now };
       if (ask && clients.size) { // the office is open: wait for a page or the terminal to answer
         const id = crypto.randomUUID();
         const p = { id, key, sid: e.session_id, aid: e.agent_id, tool: e.tool_name, input: sha1(JSON.stringify(e.tool_input)), hooks: [], timer: setTimeout(() => settle(id, 'expired'), HOLD_MS) };

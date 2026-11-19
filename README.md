@@ -42,10 +42,12 @@ Git for Windows가 없는 Windows에서는 두 번째 명령 대신 `/plugin ins
 
 | In Claude Code | In the office |
 |---|---|
+| Agents you defined (`.claude/agents/*.md`) | Each has a desk with its name on it before any work comes in |
 | A subagent starts | A sleeping staff member wakes up with a "!" and gets the task's name |
 | Edit / Write, Read / Grep, Bash | Typing, reading papers, a terminal on the monitor |
 | A subagent finishes | Its report flies to the boss's desk; the boss reads the first line |
 | Agent teams | Each teammate gets a desk on the lead's floor; given more work later, it wakes at the same desk |
+| More agents at work than the 8 desks | Up to six temps stand beside the boss; a "+N" on the door counts the ones waiting outside |
 | Permission prompt | A "?" bubble, a chime, and Allow / Deny buttons under the office (see below) |
 | A tool still running after 5 minutes | A "5MIN" bubble and a "!" on its floor's tab: a hung command, or claude closed mid-task |
 | A tool fails | Sweat and "OOPS"; three failures in a row make the monitor smoke |
@@ -53,11 +55,11 @@ Git for Windows가 없는 Windows에서는 두 번째 명령 대신 `/plugin ins
 | Context compaction | A robot vacuum cleans up and the report pile is filed away |
 | Rate limit or overload | The lights go out |
 
-Click anyone to see their task, recent tools, work time and last report. Right-click someone to pick their look from the 13 in the art (it stays with that desk, or the boss, on every floor; "Default" undoes it). Three office themes: day, late night and wood.
+Click anyone to see their task, recent tools, work time and last report, and for an agent you defined, what it does. Right-click someone to pick their look from the 13 in the art (it stays with that desk, or the boss, on every floor; "Default" undoes it). Three office themes: day, late night and wood.
 
 ### Under the office
 
-- **Staff**: who is working on what.
+- **Staff**: who is working on what, then the agents you defined that are free, each with what it does. The office has 8 desks: with more agents than that, the first 8 are seated, and one without a desk (an empty square in the list) takes the desk that has been idle the longest when it gets work.
 - **Files**: the files edited this session (Edit/Write), newest first, with who edited them and how often. Changes made by commands (Bash) aren't listed.
 - **Reports**: every report subagents and teammates sent back, in full. Click one to open it; Copy copies it.
 - **Log**: what happened on this floor, in order: instructions, tools used, reports, permission prompts, compactions.
@@ -96,7 +98,7 @@ Claude Code hooks ──curl──▶ local server (127.0.0.1) ──SSE──�
 
 - The hooks run in the background (`async`), so they never slow Claude down. The one exception is the permission prompt's hook: it waits for an answer from the office (up to 10 minutes), while claude's own prompt is already on screen, so it holds nothing up either.
 - When the office isn't open there is no port file, and the hooks exit at once: nothing is sent and nothing is printed.
-- Everything stays on your machine. The server keeps only what the office draws (tool names, task names, a report's first line) and drops file contents and command output. To show the boss's model, it reads the end of the session transcript.
+- Everything stays on your machine. The server keeps only what the office draws (tool names, task names, a report's first line) and drops file contents and command output. To show the boss's model, it reads the end of the session transcript. To name the staff, it reads the name and description of each agent you defined (`.claude/agents/*.md` in the session's folder and in `~/.claude`), not the agent's prompt.
 
 Requirements: `bash` and `curl`. macOS and Linux have both. On Windows, Claude Code runs hooks in Git Bash, which includes curl. On Windows without Git for Windows, Claude Code runs hooks in PowerShell instead: install `agent-office-powershell@agent-office` rather than `agent-office@agent-office`. (The desktop app picks the right one itself.)
 

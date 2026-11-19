@@ -7,6 +7,10 @@
   // The design's layout: a desk is its partition's top-left; desk 0 is the boss's, 1..8 are staff desks.
   const DESKS = [{ x: 73, y: 37, w: 46 }, ...[77, 117].flatMap(y => [7, 53, 99, 145].map(x => ({ x, y, w: 34 })))];
   const SPOTS = [[134, 28], [40, 28]]; // where temps stand when every desk is taken
+  // Three temps fit a standing place before they cover the boss's desk: any more wait outside, counted in a "+N" on
+  // the door. Everyone is on the staff list either way.
+  const CROWD = 3 * SPOTS.length, DOOR = { x: 12, y: 24 };
+  const inRoom = c => c.kind !== 'temp' || c.n < CROWD;
   const PILE = { x: 108, y: 42 }; // the boss's in-tray
 
   const TOOL_STATUS = {
@@ -52,8 +56,9 @@
     for (let i = 1; i < DESKS.length; i++) chars['desk' + i] = newChar('desk' + i, 'staff', i, i);
     return {
       chars, who: {}, bossSession: null, pendingTasks: [], knownTasks: {}, doneTools: new Set(), gone: new Map(),
-      seq: DESKS.length, temps: 0, lights: null, cleaning: 0, effects: [], reports: 0,
+      seq: DESKS.length, lights: null, cleaning: 0, effects: [], reports: 0,
       tasks: {}, files: {}, context: 0, modelId: '', // claude's to-do list, files edited, context tokens (of modelId's window)
+      roster: [], // the agents this session has defined: [{ name, description }]
       inbox: [], journal: [], sent: {}, // subagents' reports in full, what happened when, the lead's last message to each teammate
     };
   }
@@ -145,6 +150,19 @@
     return line.length > 40 ? line.slice(0, 39) + '…' : line;
   }
 
+  // The agents a session has defined (the server reads .claude/agents): each gets a desk and its name before any work
+  // comes in, while unnamed desks last. The rest are on the staff list and take a desk when they first work.
+  function seatRoster(s, agents) {
+    s.roster = agents.filter(a => a && typeof a.name === 'string' && a.name);
+    const staff = Object.values(s.chars).filter(c => c.kind === 'staff');
+    for (const a of s.roster) {
+      if (staff.some(c => c.label === a.name)) continue;
+      const c = staff.find(x => !x.label);
+      if (!c) break;
+      c.label = a.name;
+    }
+  }
+
   // The character an event belongs to. A new subagent or teammate wakes up a sleeping staff member.
   function charFor(s, e, now) {
     const id = e.agent_id || e.session_id;
@@ -162,8 +180,16 @@
     }
     const label = e.agent_type || 'teammate';
     const free = Object.values(s.chars).filter(c => c.kind === 'staff' && !c.busy);
-    let c = free.find(f => f.label === label) || free[0]; // the same kind of agent gets its old desk back
-    if (!c) { const n = ++s.seq; c = s.chars['temp' + n] = newChar('temp' + n, 'temp', -1, s.temps++); } // office full: a temp stands in
+    // the same kind of agent gets its old desk back; else a desk nobody has, else the one idle the longest (a name
+    // that never worked goes first)
+    let c = free.find(f => f.label === label) || free.find(f => !f.label) || free.sort((a, z) => a.seenAt - z.seenAt)[0];
+    if (!c) { // office full: a temp stands in, at the first standing place nobody is in
+      const taken = new Set(Object.values(s.chars).filter(x => x.kind === 'temp').map(x => x.n)), id = 'temp' + ++s.seq;
+      let n = 0;
+      while (taken.has(n)) n++;
+      c = s.chars[id] = newChar(id, 'temp', -1, n);
+    }
+    if (c.label !== label) Object.assign(c, { jobs: 0, lastReport: '' }); // someone else's desk before: their record isn't this one's
     Object.assign(c, { busy: true, label, task: '', tool: null, history: [], handback: '', since: now });
     c.jobs++;
     s.who[id] = c.id;
@@ -184,6 +210,7 @@
     // a subagent's report: SubagentHandback, or (agent teams) a teammate's message to the lead
     const handback = e.tool_name === 'SubagentHandback' || (e.tool_name === 'SendMessage' && e.agent_id) ? e.tool_input?.message : undefined;
     if (handback && s.gone.has(e.agent_id)) return lateReport(s, e.agent_id, handback);
+    if (Array.isArray(e.agents)) seatRoster(s, e.agents);
     const c = charFor(s, e, now);
     if (!c) return s;
     c.seenAt = now; // the last sign of life, for stuckFor()
@@ -261,7 +288,7 @@
         break;
       case 'PostModelSwitch': setModel(s, e.to_model); break;
       case 'SubagentStop': {
-        const text = c.handback || e.last_assistant_message || '', from = seat(c), report = firstLine(text);
+        const text = c.handback || e.last_assistant_message || '', from = inRoom(c) ? seat(c) : DOOR, report = firstLine(text);
         Object.assign(c, { status: 'sleeping', tool: null, busy: false, lastReport: report });
         s.inbox.unshift({ agent: e.agent_id, who: c.label, task: c.task, text, at: now });
         if (s.inbox.length > 50) s.inbox.pop();
@@ -381,7 +408,7 @@
   // Character under a point given in CSS pixels on the canvas, or null. Clicking a desk counts as its owner.
   function hit(s, cx, cy) {
     const x = (cx * view.dpr - view.ox) / view.S, y = (cy * view.dpr - view.oy) / view.S;
-    return Object.values(s.chars).find(c => {
+    return Object.values(s.chars).filter(inRoom).find(c => {
       const p = seat(c), d = DESKS[c.desk];
       const r = d ? { x: d.x, y: d.y - 9, w: d.w, h: 28 } : { x: p.x + 4, y: p.y, w: 16, h: 38 };
       return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
@@ -405,7 +432,7 @@
     Z: '111001010100111', 0: '111101101101111', 1: '010110010010111', 2: '110001010100111', 3: '110001010001110',
     4: '101101111001001', 5: '111100110001110', 6: '011100110101010', 7: '111001010010010', 8: '010101010101010',
     9: '010101011001110', '!': '010010010000010', '?': '110001010000010', '.': '000000000000010', '-': '000000111000000',
-    ':': '000010000010000', '/': '001001010100100', ' ': '000000000000000',
+    ':': '000010000010000', '/': '001001010100100', '+': '000010111010000', ' ': '000000000000000',
   };
   const glyph = ch => (art?.glyphs[ch] ? art.glyphs[ch].join('') : FONT[ch] || FONT['?']);
   const textWidth = text => Math.max(0, text.length * 4 - 1);
@@ -545,7 +572,7 @@
     ctx.imageSmoothingEnabled = false;
     const R = (x, y, w, h, color) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
     s.effects = s.effects.filter(f => now - f.at < EFFECT_MS[f.type]);
-    const chars = Object.values(s.chars), clap = s.effects.some(f => f.type === 'clap');
+    const everyone = Object.values(s.chars), chars = everyone.filter(inRoom), clap = s.effects.some(f => f.type === 'clap');
     const look = imgs.themes[theme], [cellW, cellH] = art.cell;
 
     ctx.drawImage(look.room, 0, 0);
@@ -585,6 +612,7 @@
     }
     for (const f of s.effects) drawEffect(R, f, now - f.at, t);
     for (const c of chars) drawOverlay(ctx, R, c, t, now, clap);
+    if (everyone.length > chars.length) textBubble(R, '+' + (everyone.length - chars.length), DOOR.x, DOOR.y, { hot: true }); // temps waiting outside
 
     if (s.lights) { // blackout: lights off + a sign hanging from the ceiling
       ctx.fillStyle = 'rgba(17,17,27,0.7)';

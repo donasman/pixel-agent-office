@@ -132,6 +132,15 @@ function personRow(c) {
   const late = lateOf(c);
   return el('li', '', dot, c.label + (c.task ? `: ${c.task}` : ''), el('span', 'st', ` — ${statusOf(c)}`), late ? el('span', 'late', late) : '');
 }
+// A defined agent with no work right now: what it does. Its dot is its desk's color, or empty while it has no desk
+// (the office has 8; it takes one when it first works).
+function idleRow(a, c) {
+  const dot = el('span', 'dot');
+  if (c) dot.style.background = Office.colorOf(c);
+  const li = el('li', 'off', dot, a.name, a.description ? ` — ${a.description}` : '');
+  li.title = a.description || a.name;
+  return li;
+}
 const TICK = { completed: '✓', in_progress: '▶' };
 function taskRow(t) {
   const li = el('li', `task ${t.status}`, el('span', 'tick', TICK[t.status] || '○'), t.status === 'in_progress' && t.active ? t.active : t.subject);
@@ -189,8 +198,11 @@ function renderPanel() {
   }
   renderContext(s);
   const asks = cs.filter(c => c.perm && c.status === 'waiting'), people = cs.filter(c => c.kind === 'boss' || c.busy);
+  // the agents this session has defined that aren't working, each with its desk if it has one
+  const idle = s.roster.filter(a => !people.some(c => c.label === a.name)).map(a => [a, cs.find(c => c.kind === 'staff' && c.label === a.name)]);
   const shown = view === 'tasks' ? tasks : view === 'files' ? files : view === 'reports' ? s.inbox.map(r => [r.at, r.text.length])
-    : view === 'log' ? [s.journal.length, s.journal.at(-1)?.at] : people.map(c => [c.id, c.label, c.task, Office.colorOf(c), statusOf(c), lateOf(c)]);
+    : view === 'log' ? [s.journal.length, s.journal.at(-1)?.at]
+    : [people.map(c => [c.id, c.label, c.task, Office.colorOf(c), statusOf(c), lateOf(c)]), idle.map(([a, c]) => [a.name, a.description, c && Office.colorOf(c)])];
   // rebuilt only when something shown changes, so buttons stay put under the cursor
   const key = JSON.stringify([current, view, asks.map(c => c.perm.id), shown]);
   if (key === rosterKey) return;
@@ -202,7 +214,7 @@ function renderPanel() {
       : T('Files claude edits with Edit/Write are listed here.', 'claude가 Edit/Write로 고친 파일이 여기 모여요.'))]
     : view === 'reports' ? (s.inbox.length ? s.inbox.map(reportRow) : [hint(T('Reports that subagents and teammates send back when they finish are collected here. Click one to read it in full.', '서브에이전트와 팀원이 일을 마치고 보낸 보고서가 여기 모여요. 누르면 전문이 보여요.'))])
     : view === 'log' ? (s.journal.length ? s.journal.slice().reverse().map(logRow) : [hint(T('What happens on this floor is logged here, in order.', '이 층에서 일어난 일이 시간순으로 쌓여요.'))])
-    : people.map(personRow);
+    : [...people.map(personRow), ...idle.map(([a, c]) => idleRow(a, c))];
   roster.replaceChildren(...asks.map(askRow), ...rows);
 }
 
@@ -221,6 +233,8 @@ function renderCard() {
   ];
   if (c.kind === 'boss') rows.push([T('Model', '모델'), c.model || '?'], [T('Context', '컨텍스트'), s.context ? `${tokens(s.context)} ${T('tokens', '토큰')}` : '-'], [T('Reports', '받은 보고서'), `${s.reports}${T('', '장')}`]);
   else rows.push([T('Jobs', '받은 업무'), `${c.jobs}${T('', '건')}`], [T('Last report', '마지막 보고'), c.lastReport || '-']);
+  const role = c.kind !== 'boss' && s.roster.find(a => a.name === c.label)?.description; // an agent this session has defined
+  if (role) rows.unshift([T('Role', '하는 일'), role]);
   cardBody.replaceChildren(
     el('strong', '', c.kind === 'boss' ? T('Claude (boss)', 'Claude (보스)') : nameOf(c)),
     ...rows.map(([k, v]) => el('div', '', el('span', 'k', k), v)));

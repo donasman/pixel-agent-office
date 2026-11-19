@@ -137,6 +137,30 @@ const watch = port => {
   assert.deepEqual([stop.context, stop.model], [3250, 'claude-haiku-5-5'], 'context = everything the last answer was given and wrote');
   assert.equal(compact.context, 900, 'after compacting, what is left');
 
+  // --- the staff list: the agents a session has defined, by name and description only ---
+  const defs = path.join(proj, '.claude', 'agents'), mine = path.join(process.env.CLAUDE_CONFIG_DIR, 'agents');
+  fs.mkdirSync(defs, { recursive: true });
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(defs, 'error-hunter.md'), '---\nname: error-hunter\ndescription: "Finds errors that\\nhide."\ntools: Read\n---\nSECRET PROMPT\n');
+  fs.writeFileSync(path.join(defs, 'planner.md'), '---\r\nname: planner\r\ndescription: |\r\n  Splits a feature\r\n  into steps.\r\nmodel: sonnet\r\n---\r\nbody\r\n');
+  fs.writeFileSync(path.join(defs, 'README.md'), '# notes, not an agent\n');
+  fs.writeFileSync(path.join(mine, 'planner.md'), '---\nname: planner\ndescription: the one in the claude dir\n---\n');
+  fs.writeFileSync(path.join(mine, 'writer.md'), String.fromCharCode(0xFEFF) + "---\nname: writer\ndescription: 'Writes docs'\n---\n"); // saved by Notepad: a byte-order mark first
+  const staff = watch(a.port);
+  await tick(100);
+  await post(a.port, { hook_event_name: 'SessionStart', session_id: 'R', cwd: proj, source: 'startup' });
+  await post(a.port, { hook_event_name: 'PreToolUse', session_id: 'R', cwd: proj, tool_name: 'Read', tool_use_id: 'R1' });
+  await post(a.port, { hook_event_name: 'SubagentStart', session_id: 'R', cwd: proj, agent_id: 'r1', agent_type: 'planner' });
+  await post(a.port, { hook_event_name: 'UserPromptSubmit', session_id: 'R', cwd: path.join(proj, 'src') }); // claude has cd'ed since
+  await tick(150);
+  const [started, tool, working, prompt] = staff.got.slice(-4);
+  staff.close();
+  assert.deepEqual(started.agents, [{ name: 'error-hunter', description: 'Finds errors that hide.' }, { name: 'planner', description: 'Splits a feature into steps.' }, { name: 'writer', description: 'Writes docs' }],
+    "the folder's agents, then the claude dir's; the folder's wins a shared name; a file with no name is not an agent");
+  assert.ok(!JSON.stringify(started).includes('SECRET'), "an agent's prompt is not streamed");
+  assert.deepEqual([tool.agents, working.agents], [undefined, undefined], 'not with every event');
+  assert.deepEqual(prompt.agents, started.agents, 'again at each prompt, still from the folder the session started in');
+
   // --- subscription usage from the status line script: passed on when it changes, and the script itself ---
   const gauge = watch(a.port);
   await tick(100);

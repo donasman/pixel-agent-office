@@ -318,6 +318,42 @@ for (const c of Object.values(chars)) if (c.say?.text) assert.match(c.say.text, 
   assert.deepEqual(s.journal.map(j => j.at), s.journal.map(j => j.at).slice().sort((x, y) => x - y), 'the log is in time order');
 }
 
+// --- the staff list: the agents a session has defined (.claude/agents, read by the server) ---
+{
+  const b = Office.createBuilding();
+  const go = (hook_event_name, extra = {}, now = 1000) => Office.route(b, { session_id: 'R', project: 'p', hook_event_name, ...extra }, now);
+  const defined = n => Array.from({ length: n }, (_, i) => ({ name: 'agent' + (i + 1), description: 'does ' + (i + 1) }));
+  const s = go('SessionStart', { source: 'startup', agents: defined(10) }).state, { chars } = s;
+  assert.deepEqual([chars.desk1.label, chars.desk8.label, chars.desk1.status, chars.desk1.busy], ['agent1', 'agent8', 'sleeping', false], 'named at their desks before any work; 8 desks, so 8 of the 10');
+  assert.equal(s.roster.length, 10, 'all ten are on the list');
+  go('SubagentStart', { agent_id: 'r3', agent_type: 'agent3' }, 2000);
+  assert.equal(s.who.r3, 'desk3', 'work goes to its own desk');
+  go('SubagentStop', { agent_id: 'r3', last_assistant_message: 'three done' }, 2500);
+  go('SubagentStart', { agent_id: 'r9', agent_type: 'agent9' }, 3000);
+  assert.deepEqual([s.who.r9, chars.desk1.label, chars.desk1.jobs, chars.desk1.lastReport], ['desk1', 'agent9', 1, ''], 'no desk of its own: it takes one whose name never worked');
+  go('SubagentStart', { agent_id: 'rx', agent_type: 'Explore' }, 3100);
+  assert.deepEqual([s.who.rx, chars.desk3.label, chars.desk3.lastReport], ['desk2', 'agent3', 'three done'], 'the desk that just worked is the last to be given away');
+  go('UserPromptSubmit', { agents: defined(10) }, 4000); // the list comes again with every prompt
+  assert.equal(Object.values(chars).filter(c => c.label === 'agent4').length, 1, 'nobody is seated twice');
+
+  const few = Office.createState();
+  Office.reduce(few, { session_id: 'S', hook_event_name: 'SessionStart', agents: defined(3) }, 1);
+  Office.reduce(few, { session_id: 'S', hook_event_name: 'SubagentStart', agent_id: 'e', agent_type: 'Explore' }, 2);
+  assert.equal(few.who.e, 'desk4', 'an agent with no file takes an unnamed desk, not a named one');
+
+  // more at work than desks: temps stand in, and a standing place someone left is used again (counting on, they
+  // would walk off the screen)
+  const full = Office.createState(), sub = (ev, id) => Office.reduce(full, { session_id: 'S', hook_event_name: ev, agent_id: id, agent_type: 'general-purpose' }, 1);
+  for (let i = 0; i < 10; i++) sub('SubagentStart', 'g' + i);
+  assert.deepEqual([full.chars[full.who.g8].n, full.chars[full.who.g9].n], [0, 1]);
+  sub('SubagentStop', 'g8');
+  sub('SubagentStart', 'g10');
+  assert.equal(full.chars[full.who.g10].n, 0);
+  // six temps stand in the room (three to a place); the rest wait outside as a "+N" on the door and can't be clicked
+  for (let i = 11; i < 18; i++) sub('SubagentStart', 'g' + i);
+  assert.deepEqual([Office.hit(full, 150, 40)?.n, Office.hit(full, 121, 40)], [0, null], 'the first temp is there to click; where a seventh would stand, nobody is');
+}
+
 // the same log in English: every word the reducer writes
 {
   Office.setLang('en');
