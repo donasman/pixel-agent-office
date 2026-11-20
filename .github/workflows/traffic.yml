@@ -1,0 +1,32 @@
+# Records daily GitHub clone counts to clones.csv on the `stats` branch (GitHub only keeps 14 days).
+# Needs secret TRAFFIC_TOKEN: a fine-grained token for this repo with "Administration: Read-only"
+# (the built-in GITHUB_TOKEN cannot read traffic).
+name: Traffic
+on:
+  schedule:
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record clones
+        env:
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+        run: |
+          set -euo pipefail
+          new="$RUNNER_TEMP/new.csv"
+          gh api "repos/${{ github.repository }}/traffic/clones" \
+            --jq '.clones[] | "\(.timestamp[:10]),\(.count),\(.uniques)"' > "$new"
+          git fetch -q origin stats && git checkout -qb stats FETCH_HEAD || { git checkout --orphan stats && git rm -rfq .; }
+          touch clones.csv
+          # The API's 14 days overwrite the same dates already recorded (today's row is partial until tomorrow).
+          { echo "date,count,uniques"; { grep -v '^date' clones.csv | grep -vF -f <(cut -d, -f1 "$new") || true; cat "$new"; } | sort; } > "$RUNNER_TEMP/out.csv"
+          mv "$RUNNER_TEMP/out.csv" clones.csv
+          git add clones.csv
+          git diff --cached --quiet && exit 0
+          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com commit -qm "clones $(date -u +%F)"
+          git push origin stats
